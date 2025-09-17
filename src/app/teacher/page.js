@@ -1,0 +1,486 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'next/navigation';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc as getSingleDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+
+// Shadcn UI Components
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../../components/ui/dialog';
+
+export default function TeacherPage() {
+  const { currentUser, userRole, loading } = useAuth();
+  const router = useRouter();
+  const [students, setStudents] = useState([]);
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [message, setMessage] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
+  const [attendanceRecords, setAttendanceRecords] = useState({}); // {studentId: status}
+  const [invoiceMonth, setInvoiceMonth] = useState(new Date().getMonth() + 1); // 1-12
+  const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
+  const [invoices, setInvoices] = useState([]);
+
+  useEffect(() => {
+    if (!loading) {
+      if (!currentUser || (userRole !== 'teacher' && userRole !== 'superadmin')) {
+        router.push('/dashboard'); // Redirect if not teacher/superadmin or not logged in
+      }
+    }
+  }, [loading, currentUser, userRole, router]);
+
+  const fetchStudents = async () => {
+    if (currentUser && (userRole === 'teacher' || userRole === 'superadmin')) {
+      const studentsCollectionRef = collection(db, 'students');
+      let q;
+      if (userRole === 'teacher') {
+        q = query(studentsCollectionRef, where('teacherId', '==', currentUser.uid));
+      } else { // superadmin can see all students
+        q = studentsCollectionRef;
+      }
+      const studentsSnapshot = await getDocs(q);
+      const studentsList = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setStudents(studentsList);
+    }
+  };
+
+  const fetchAttendance = async () => {
+    if (currentUser && (userRole === 'teacher' || userRole === 'superadmin') && attendanceDate) {
+      const attendanceCollectionRef = collection(db, 'attendance');
+      let q;
+      if (userRole === 'teacher') {
+        q = query(attendanceCollectionRef, where('teacherId', '==', currentUser.uid), where('date', '==', attendanceDate));
+      } else { // superadmin can see all attendance
+        q = query(attendanceCollectionRef, where('date', '==', attendanceDate));
+      }
+      const attendanceSnapshot = await getDocs(q);
+      const records = {};
+      attendanceSnapshot.docs.forEach(d => {
+        records[d.data().studentId] = { status: d.data().status, id: d.id };
+      });
+      setAttendanceRecords(records);
+    }
+  };
+
+  useEffect(() => {
+    fetchStudents();
+  }, [currentUser, userRole]);
+
+  useEffect(() => {
+    fetchAttendance();
+  }, [currentUser, userRole, attendanceDate]);
+
+  const handleAddStudent = async () => {
+    if (!newStudentName || !newStudentEmail) {
+      setMessage('Student name and email cannot be empty.');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'students'), {
+        name: newStudentName,
+        email: newStudentEmail,
+        teacherId: currentUser.uid,
+        createdAt: new Date(),
+      });
+      setNewStudentName('');
+      setNewStudentEmail('');
+      setMessage('Student added successfully!');
+      fetchStudents(); // Re-fetch students to update the list
+    } catch (error) {
+      console.error("Error adding student:", error);
+      setMessage(`Failed to add student: ${error.message}`);
+    }
+  };
+
+  const handleUpdateStudent = async () => {
+    if (!editingStudent || !editingStudent.name || !editingStudent.email) {
+      setMessage('Student name and email cannot be empty.');
+      return;
+    }
+    try {
+      const studentRef = doc(db, 'students', editingStudent.id);
+      await updateDoc(studentRef, {
+        name: editingStudent.name,
+        email: editingStudent.email,
+      });
+      setMessage('Student updated successfully!');
+      setEditingStudent(null);
+      fetchStudents(); // Re-fetch students to update the list
+    } catch (error) {
+      console.error("Error updating student:", error);
+      setMessage(`Failed to update student: ${error.message}`);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId) => {
+    try {
+      await deleteDoc(doc(db, 'students', studentId));
+      setMessage('Student deleted successfully!');
+      // Filter out the deleted student from the state
+      setStudents(prevStudents => prevStudents.filter(student => student.id !== studentId));
+    } catch (error) {
+      console.error("Error deleting student:", error);
+      setMessage(`Failed to delete student: ${error.message}`);
+    }
+  };
+
+  const handleMarkAttendance = async (studentId, status) => {
+    
+    try {
+      const attendanceQuery = query(collection(db, 'attendance'),
+        where('studentId', '==', studentId),
+        where('teacherId', '==', currentUser.uid),
+        where('date', '==', attendanceDate)
+      );
+      const existingAttendance = await getDocs(attendanceQuery);
+      
+
+      if (existingAttendance.empty) {
+        // Add new attendance record
+        const newAttendanceData = {
+          studentId,
+          teacherId: currentUser.uid,
+          date: attendanceDate,
+          status,
+          markedBy: currentUser.uid,
+          markedAt: new Date(),
+        };
+        
+        
+        await addDoc(collection(db, 'attendance'), newAttendanceData);
+      } else {
+        // Update existing attendance record
+        const recordId = existingAttendance.docs[0].id;
+        const updatedAttendanceData = {
+          status,
+          markedBy: currentUser.uid,
+          markedAt: new Date(),
+        };
+        
+        await updateDoc(doc(db, 'attendance', recordId), updatedAttendanceData);
+      }
+      const student = students.find(s => s.id === studentId);
+      if (student) {
+        setMessage(`Attendance for ${student.name} marked as ${status}`);
+      } else {
+        setMessage(`Attendance for student ${studentId} marked as ${status}`); // Fallback
+      }
+      fetchAttendance(); // Re-fetch attendance to update UI
+    } catch (error) {
+      console.error("Error marking attendance in catch block:", error); // MODIFY THIS LOG
+      setMessage(`Failed to mark attendance: ${error.message}`);
+    }
+  };
+
+  const handleGenerateInvoice = async (studentId) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) {
+      setMessage('Student not found.');
+      return;
+    }
+
+    try {
+      const attendanceQuery = query(collection(db, 'attendance'),
+        where('studentId', '==', student.id),
+        where('teacherId', '==', currentUser.uid),
+        where('status', '==', 'present'),
+        where('date', '>=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-01`),
+        where('date', '<=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-31`)
+      );
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      const presentDays = attendanceSnapshot.docs.length;
+      const amount = presentDays * 35; // Assuming $35 per present day
+
+      // Check if invoice already exists for this student, month, and year
+      const existingInvoiceQuery = query(collection(db, 'invoices'),
+        where('studentId', '==', student.id),
+        where('teacherId', '==', currentUser.uid),
+        where('month', '==', invoiceMonth),
+        where('year', '==', invoiceYear)
+      );
+      const existingInvoiceSnapshot = await getDocs(existingInvoiceQuery);
+
+      if (existingInvoiceSnapshot.empty) {
+        await addDoc(collection(db, 'invoices'), {
+          studentId: student.id,
+          teacherId: currentUser.uid,
+          month: invoiceMonth,
+          year: invoiceYear,
+          amount,
+          status: 'pending',
+          generatedAt: new Date(),
+          details: { presentDays, ratePerDay: 35 },
+        });
+      } else {
+        // Update existing invoice
+        const invoiceId = existingInvoiceSnapshot.docs[0].id;
+        await updateDoc(doc(db, 'invoices', invoiceId), {
+          amount,
+          status: 'pending', // Reset status if re-generated
+          generatedAt: new Date(),
+          details: { presentDays, ratePerDay: 35 },
+        });
+      }
+      setMessage(`Invoice generated for ${student.name} for ${invoiceMonth}/${invoiceYear} successfully!`);
+      fetchInvoices(); // Refresh the invoice list
+    } catch (error) {
+      console.error("Error generating invoices:", error);
+      setMessage(`Failed to generate invoices: ${error.message}`);
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId) => {
+    try {
+      await deleteDoc(doc(db, 'invoices', invoiceId));
+      setMessage('Invoice deleted successfully!');
+      fetchInvoices(); // Refresh the invoice list
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      setMessage(`Failed to delete invoice: ${error.message}`);
+    }
+  };
+
+  const fetchInvoices = async () => {
+    if (currentUser && (userRole === 'teacher' || userRole === 'superadmin')) {
+      const invoicesCollectionRef = collection(db, 'invoices');
+      let q;
+      if (userRole === 'teacher') {
+        q = query(invoicesCollectionRef, where('teacherId', '==', currentUser.uid));
+      } else { // superadmin can see all invoices
+        q = invoicesCollectionRef;
+      }
+      const invoicesSnapshot = await getDocs(q);
+      const invoicesList = invoicesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setInvoices(invoicesList);
+    }
+  };
+
+  useEffect(() => {
+    fetchInvoices();
+  }, [currentUser, userRole]);
+
+  if (loading || !currentUser || (userRole !== 'teacher' && userRole !== 'superadmin')) {
+    return <div className="min-h-screen flex items-center justify-center">Loading or unauthorized...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-8">
+      <h1 className="text-3xl font-bold mb-6 text-center">Teacher Dashboard</h1>
+      {message && <p className="text-center text-green-600 mb-4">{message}</p>}
+
+      {/* Add Student Section */}
+      <section className="mb-8 p-6 bg-white rounded shadow-md">
+        <h2 className="text-2xl font-bold mb-4">Add New Student</h2>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button>Add Student</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New Student</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="newStudentName" className="text-right">Name</Label>
+                <Input id="newStudentName" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="col-span-3" />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="newStudentEmail" className="text-right">Email</Label>
+                <Input id="newStudentEmail" type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} className="col-span-3" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" onClick={handleAddStudent}>Add Student</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </section>
+
+      {/* Student List Section */}
+      <section className="mb-8 p-6 bg-white rounded shadow-md">
+        <h2 className="text-2xl font-bold mb-4">My Students</h2>
+        <div className="flex items-center space-x-4 mb-4">
+          <div>
+            <Label htmlFor="invoiceMonth" className="mr-2">Month:</Label>
+            <Input
+              type="number"
+              id="invoiceMonth"
+              value={invoiceMonth}
+              onChange={(e) => setInvoiceMonth(parseInt(e.target.value))}
+              min="1"
+              max="12"
+              className="w-20 inline-block"
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoiceYear" className="mr-2">Year:</Label>
+            <Input
+              type="number"
+              id="invoiceYear"
+              value={invoiceYear}
+              onChange={(e) => setInvoiceYear(parseInt(e.target.value))}
+              min="2000"
+              max="2100"
+              className="w-24 inline-block"
+            />
+          </div>
+        </div>
+        {students.length === 0 ? (
+          <p>No students added yet.</p>
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {students.map(student => (
+                  <TableRow key={student.id}>
+                    <TableCell className="font-medium">{student.name}</TableCell>
+                    <TableCell>{student.email}</TableCell>
+                    <TableCell>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="mr-2" onClick={() => setEditingStudent(student)}>Edit</Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Edit Student</DialogTitle>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            <div className="grid grid-cols-4 items-center gap-4">
+                              <Label htmlFor="editStudentName" className="text-right">Name</Label>
+                              <Input id="editStudentName" value={editingStudent?.name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                              <Label htmlFor="editStudentEmail" type="email" className="text-right">Email</Label>
+                              <Input id="editStudentEmail" value={editingStudent?.email || ''} onChange={(e) => setEditingStudent({ ...editingStudent, email: e.target.value })} className="col-span-3" />
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button type="submit" onClick={handleUpdateStudent}>Save Changes</Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                      <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)} className="mr-2">Delete</Button>
+                      <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>Generate Invoice</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      {/* Attendance Marking Section */}
+      <section className="mb-8 p-6 bg-white rounded shadow-md">
+        <h2 className="text-2xl font-bold mb-4">Mark Attendance</h2>
+        <div className="mb-4">
+          <Label htmlFor="attendanceDate" className="mr-2">Select Date:</Label>
+          <Input
+            type="date"
+            id="attendanceDate"
+            value={attendanceDate}
+            onChange={(e) => setAttendanceDate(e.target.value)}
+            className="w-auto inline-block"
+          />
+        </div>
+        {students.length === 0 ? (
+          <p>No students to mark attendance for.</p>
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Student Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {students.map(student => (
+                  <TableRow key={student.id}>
+                    <TableCell className="font-medium">{student.name}</TableCell>
+                    <TableCell className="capitalize">
+                      {attendanceRecords[student.id]?.status || 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        className="mr-2"
+                        variant={attendanceRecords[student.id]?.status === 'present' ? 'default' : 'outline'}
+                        onClick={() => handleMarkAttendance(student.id, 'present')}
+                      >
+                        Present
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={attendanceRecords[student.id]?.status === 'absent' ? 'destructive' : 'outline'}
+                        onClick={() => handleMarkAttendance(student.id, 'absent')}
+                      >
+                        Absent
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      
+
+      {/* Invoice List Section */}
+      <section className="mb-8 p-6 bg-white rounded shadow-md">
+        <h2 className="text-2xl font-bold mb-4">Generated Invoices</h2>
+        <Button onClick={fetchInvoices} className="mb-4">Refresh Invoices</Button>
+        {invoices.length === 0 ? (
+          <p>No invoices found.</p>
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Student Name</TableHead>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Year</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map(invoice => (
+                  <TableRow key={invoice.id}>
+                    <TableCell>{students.find(s => s.id === invoice.studentId)?.name || 'N/A'}</TableCell>
+                    <TableCell>{invoice.month}</TableCell>
+                    <TableCell>{invoice.year}</TableCell>
+                    <TableCell>RM{invoice.amount}</TableCell>
+                    <TableCell className="capitalize">{invoice.status}</TableCell>
+                    <TableCell>
+                      <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)}>Delete</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+
