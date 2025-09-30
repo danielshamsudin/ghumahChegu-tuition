@@ -19,6 +19,7 @@ export default function TeacherPage() {
   const [students, setStudents] = useState([]);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [newStudentHourlyRate, setNewStudentHourlyRate] = useState(35);
   const [editingStudent, setEditingStudent] = useState(null);
   const [message, setMessage] = useState('');
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
@@ -77,19 +78,25 @@ export default function TeacherPage() {
   }, [currentUser, userRole, attendanceDate]);
 
   const handleAddStudent = async () => {
-    if (!newStudentName || !newStudentEmail) {
-      setMessage('Student name and email cannot be empty.');
+    if (!newStudentName) {
+      setMessage('Student name cannot be empty.');
+      return;
+    }
+    if (!newStudentHourlyRate || newStudentHourlyRate <= 0) {
+      setMessage('Hourly rate must be greater than 0.');
       return;
     }
     try {
       await addDoc(collection(db, 'students'), {
         name: newStudentName,
-        email: newStudentEmail,
+        email: newStudentEmail || '',
+        hourlyRate: parseFloat(newStudentHourlyRate),
         teacherId: currentUser.uid,
         createdAt: new Date(),
       });
       setNewStudentName('');
       setNewStudentEmail('');
+      setNewStudentHourlyRate(35);
       setMessage('Student added successfully!');
       fetchStudents(); // Re-fetch students to update the list
     } catch (error) {
@@ -99,15 +106,20 @@ export default function TeacherPage() {
   };
 
   const handleUpdateStudent = async () => {
-    if (!editingStudent || !editingStudent.name || !editingStudent.email) {
-      setMessage('Student name and email cannot be empty.');
+    if (!editingStudent || !editingStudent.name) {
+      setMessage('Student name cannot be empty.');
+      return;
+    }
+    if (!editingStudent.hourlyRate || editingStudent.hourlyRate <= 0) {
+      setMessage('Hourly rate must be greater than 0.');
       return;
     }
     try {
       const studentRef = doc(db, 'students', editingStudent.id);
       await updateDoc(studentRef, {
         name: editingStudent.name,
-        email: editingStudent.email,
+        email: editingStudent.email || '',
+        hourlyRate: parseFloat(editingStudent.hourlyRate),
       });
       setMessage('Student updated successfully!');
       setEditingStudent(null);
@@ -195,7 +207,8 @@ export default function TeacherPage() {
       );
       const attendanceSnapshot = await getDocs(attendanceQuery);
       const presentDays = attendanceSnapshot.docs.length;
-      const amount = presentDays * 35; // Assuming $35 per present day
+      const hourlyRate = student.hourlyRate || 35;
+      const amount = presentDays * hourlyRate;
 
       // Check if invoice already exists for this student, month, and year
       const existingInvoiceQuery = query(collection(db, 'invoices'),
@@ -215,7 +228,7 @@ export default function TeacherPage() {
           amount,
           status: 'pending',
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: 35 },
+          details: { presentDays, ratePerDay: hourlyRate },
         });
       } else {
         // Update existing invoice
@@ -224,7 +237,7 @@ export default function TeacherPage() {
           amount,
           status: 'pending', // Reset status if re-generated
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: 35 },
+          details: { presentDays, ratePerDay: hourlyRate },
         });
       }
       setMessage(`Invoice generated for ${student.name} for ${invoiceMonth}/${invoiceYear} successfully!`);
@@ -291,8 +304,8 @@ export default function TeacherPage() {
                 <Input id="newStudentName" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="col-span-3" />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="newStudentEmail" className="text-right">Email</Label>
-                <Input id="newStudentEmail" type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} className="col-span-3" />
+                <Label htmlFor="newStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
+                <Input id="newStudentHourlyRate" type="number" min="0" step="0.01" value={newStudentHourlyRate} onChange={(e) => setNewStudentHourlyRate(e.target.value)} className="col-span-3" />
               </div>
             </div>
             <DialogFooter>
@@ -340,6 +353,7 @@ export default function TeacherPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Hourly Rate</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -348,6 +362,7 @@ export default function TeacherPage() {
                   <TableRow key={student.id}>
                     <TableCell className="font-medium">{student.name}</TableCell>
                     <TableCell>{student.email}</TableCell>
+                    <TableCell>RM{student.hourlyRate || 35}</TableCell>
                     <TableCell>
                       <Dialog>
                         <DialogTrigger asChild>
@@ -365,6 +380,10 @@ export default function TeacherPage() {
                             <div className="grid grid-cols-4 items-center gap-4">
                               <Label htmlFor="editStudentEmail" type="email" className="text-right">Email</Label>
                               <Input id="editStudentEmail" value={editingStudent?.email || ''} onChange={(e) => setEditingStudent({ ...editingStudent, email: e.target.value })} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                              <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
+                              <Input id="editStudentHourlyRate" type="number" min="0" step="0.01" value={editingStudent?.hourlyRate || ''} onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })} className="col-span-3" />
                             </div>
                           </div>
                           <DialogFooter>

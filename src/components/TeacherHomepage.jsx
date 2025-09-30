@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Clock, Users, Plus, BookOpen, UserPlus, Calendar as CalendarCheck, FileText, Settings } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function TeacherHomepage() {
   const { currentUser, userRole } = useAuth();
@@ -32,19 +34,22 @@ export default function TeacherHomepage() {
     name: '',
     startTime: '',
     endTime: '',
-    dayOfWeek: '',
+    daysOfWeek: [],
     recurring: 'none',
     date: ''
   });
+  const [editingSubject, setEditingSubject] = useState(null);
 
   // Subject assignment state
   const [subjectAssignments, setSubjectAssignments] = useState([]);
   const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] = useState('');
   const [selectedStudentsForAssignment, setSelectedStudentsForAssignment] = useState([]);
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
 
   // Student management state
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [newStudentHourlyRate, setNewStudentHourlyRate] = useState(35);
   const [editingStudent, setEditingStudent] = useState(null);
 
   // Attendance state
@@ -121,7 +126,10 @@ export default function TeacherHomepage() {
       const attendanceSnapshot = await getDocs(q);
       const records = {};
       attendanceSnapshot.docs.forEach(d => {
-        records[d.data().studentId] = { status: d.data().status, id: d.id };
+        const data = d.data();
+        // Create unique key combining studentId and subjectId
+        const key = data.subjectId ? `${data.studentId}_${data.subjectId}` : data.studentId;
+        records[key] = { status: data.status, id: d.id };
       });
       setAttendanceRecords(records);
     }
@@ -190,8 +198,14 @@ export default function TeacherHomepage() {
       // Check if subject is scheduled for selected date
       let isScheduled = false;
 
-      if (subject.recurring === 'weekly' && subject.dayOfWeek === dayOfWeek) {
-        isScheduled = true;
+      if (subject.recurring === 'weekly') {
+        // Check for both old format (single dayOfWeek) and new format (daysOfWeek array)
+        if (subject.daysOfWeek && Array.isArray(subject.daysOfWeek)) {
+          isScheduled = subject.daysOfWeek.includes(dayOfWeek);
+        } else if (subject.dayOfWeek !== undefined) {
+          // Backwards compatibility for old single-day format
+          isScheduled = subject.dayOfWeek === dayOfWeek;
+        }
       } else if (subject.recurring === 'none' && subject.date === selectedDateStr) {
         isScheduled = true;
       }
@@ -224,8 +238,8 @@ export default function TeacherHomepage() {
     }
 
     // Validate recurring vs one-time
-    if (newSubject.recurring === 'weekly' && !newSubject.dayOfWeek) {
-      showMessage('Please select a day of week for weekly recurring subjects.', 'warning');
+    if (newSubject.recurring === 'weekly' && newSubject.daysOfWeek.length === 0) {
+      showMessage('Please select at least one day of week for weekly recurring subjects.', 'warning');
       return;
     }
 
@@ -245,18 +259,56 @@ export default function TeacherHomepage() {
       };
 
       if (newSubject.recurring === 'weekly') {
-        subjectData.dayOfWeek = parseInt(newSubject.dayOfWeek);
+        subjectData.daysOfWeek = newSubject.daysOfWeek.map(d => parseInt(d));
       } else {
         subjectData.date = newSubject.date;
       }
 
       await addDoc(collection(db, 'subjects'), subjectData);
-      setNewSubject({ name: '', startTime: '', endTime: '', dayOfWeek: '', recurring: 'none', date: '' });
+      setNewSubject({ name: '', startTime: '', endTime: '', daysOfWeek: [], recurring: 'none', date: '' });
       showMessage('Subject added successfully!');
       fetchSubjects();
     } catch (error) {
       console.error('Error adding subject:', error);
       showMessage('Failed to add subject. Please try again.', 'error');
+    }
+  };
+
+  const handleUpdateSubject = async () => {
+    if (!editingSubject || !editingSubject.name || !editingSubject.startTime || !editingSubject.endTime) {
+      showMessage('Subject name and times cannot be empty.', 'warning');
+      return;
+    }
+
+    // Validate days of week for weekly recurring subjects
+    if (editingSubject.recurring === 'weekly') {
+      const daysArray = editingSubject.daysOfWeek || [];
+      if (daysArray.length === 0) {
+        showMessage('Please select at least one day of week for weekly recurring subjects.', 'warning');
+        return;
+      }
+    }
+
+    try {
+      const subjectRef = doc(db, 'subjects', editingSubject.id);
+      const updateData = {
+        name: editingSubject.name,
+        startTime: editingSubject.startTime,
+        endTime: editingSubject.endTime,
+      };
+
+      // Update days of week for weekly recurring subjects
+      if (editingSubject.recurring === 'weekly' && editingSubject.daysOfWeek) {
+        updateData.daysOfWeek = editingSubject.daysOfWeek.map(d => parseInt(d));
+      }
+
+      await updateDoc(subjectRef, updateData);
+      showMessage('Subject updated successfully!');
+      setEditingSubject(null);
+      fetchSubjects();
+    } catch (error) {
+      console.error('Error updating subject:', error);
+      showMessage('Failed to update subject. Please try again.', 'error');
     }
   };
 
@@ -314,6 +366,7 @@ export default function TeacherHomepage() {
       showMessage('Students assigned to subject successfully!');
       setSelectedSubjectForAssignment('');
       setSelectedStudentsForAssignment([]);
+      setStudentSearchQuery('');
       fetchSubjectAssignments();
     } catch (error) {
       console.error('Error assigning students:', error);
@@ -350,7 +403,13 @@ export default function TeacherHomepage() {
 
     return subjects.some(subject => {
       if (subject.date === dateStr) return true;
-      if (subject.recurring === 'weekly' && subject.dayOfWeek === dayOfWeek) return true;
+      if (subject.recurring === 'weekly') {
+        if (subject.daysOfWeek && Array.isArray(subject.daysOfWeek)) {
+          return subject.daysOfWeek.includes(dayOfWeek);
+        } else if (subject.dayOfWeek !== undefined) {
+          return subject.dayOfWeek === dayOfWeek;
+        }
+      }
       return false;
     });
   };
@@ -358,6 +417,12 @@ export default function TeacherHomepage() {
   const getDayName = (dayNum) => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return days[dayNum] || 'Unknown';
+  };
+
+  const formatDaysOfWeek = (daysArray) => {
+    if (!daysArray || daysArray.length === 0) return 'No days selected';
+    const sortedDays = [...daysArray].sort((a, b) => a - b);
+    return sortedDays.map(day => getDayName(day)).join(', ');
   };
 
   const getAssignedStudentsForSubject = (subjectId) => {
@@ -372,44 +437,55 @@ export default function TeacherHomepage() {
 
   // Student Management Handlers
   const handleAddStudent = async () => {
-    if (!newStudentName || !newStudentEmail) {
-      showMessage('Student name and email cannot be empty.');
+    if (!newStudentName) {
+      showMessage('Student name cannot be empty.', 'warning');
+      return;
+    }
+    if (!newStudentHourlyRate || newStudentHourlyRate <= 0) {
+      showMessage('Hourly rate must be greater than 0.', 'warning');
       return;
     }
     try {
       await addDoc(collection(db, 'students'), {
         name: newStudentName,
-        email: newStudentEmail,
+        email: newStudentEmail || '',
+        hourlyRate: parseFloat(newStudentHourlyRate),
         teacherId: currentUser.uid,
         createdAt: new Date(),
       });
       setNewStudentName('');
       setNewStudentEmail('');
+      setNewStudentHourlyRate(35);
       showMessage('Student added successfully!');
       fetchStudents();
     } catch (error) {
       console.error("Error adding student:", error);
-      showMessage(`Failed to add student: ${error.message}`);
+      showMessage(`Failed to add student: ${error.message}`, 'error');
     }
   };
 
   const handleUpdateStudent = async () => {
-    if (!editingStudent || !editingStudent.name || !editingStudent.email) {
-      showMessage('Student name and email cannot be empty.');
+    if (!editingStudent || !editingStudent.name) {
+      showMessage('Student name cannot be empty.', 'warning');
+      return;
+    }
+    if (!editingStudent.hourlyRate || editingStudent.hourlyRate <= 0) {
+      showMessage('Hourly rate must be greater than 0.', 'warning');
       return;
     }
     try {
       const studentRef = doc(db, 'students', editingStudent.id);
       await updateDoc(studentRef, {
         name: editingStudent.name,
-        email: editingStudent.email,
+        email: editingStudent.email || '',
+        hourlyRate: parseFloat(editingStudent.hourlyRate),
       });
       showMessage('Student updated successfully!');
       setEditingStudent(null);
       fetchStudents();
     } catch (error) {
       console.error("Error updating student:", error);
-      showMessage(`Failed to update student: ${error.message}`);
+      showMessage(`Failed to update student: ${error.message}`, 'error');
     }
   };
 
@@ -424,19 +500,49 @@ export default function TeacherHomepage() {
     }
   };
 
+  // Get classes for a specific date
+  const getClassesForDate = (dateStr) => {
+    const date = new Date(dateStr);
+    const dayOfWeek = date.getDay();
+
+    return subjects.filter(subject => {
+      if (subject.recurring === 'weekly') {
+        if (subject.daysOfWeek && Array.isArray(subject.daysOfWeek)) {
+          return subject.daysOfWeek.includes(dayOfWeek);
+        } else if (subject.dayOfWeek !== undefined) {
+          return subject.dayOfWeek === dayOfWeek;
+        }
+      } else if (subject.recurring === 'none' && subject.date === dateStr) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  // Get students for a specific subject
+  const getStudentsForSubject = (subjectId) => {
+    const assignedStudentIds = subjectAssignments
+      .filter(a => a.subjectId === subjectId)
+      .map(a => a.studentId);
+
+    return students.filter(s => assignedStudentIds.includes(s.id));
+  };
+
   // Attendance Handlers
-  const handleMarkAttendance = async (studentId, status) => {
+  const handleMarkAttendance = async (studentId, status, subjectId) => {
     try {
       const attendanceQuery = query(collection(db, 'attendance'),
         where('studentId', '==', studentId),
         where('teacherId', '==', currentUser.uid),
-        where('date', '==', attendanceDate)
+        where('date', '==', attendanceDate),
+        where('subjectId', '==', subjectId)
       );
       const existingAttendance = await getDocs(attendanceQuery);
 
       if (existingAttendance.empty) {
         const newAttendanceData = {
           studentId,
+          subjectId,
           teacherId: currentUser.uid,
           date: attendanceDate,
           status,
@@ -461,7 +567,7 @@ export default function TeacherHomepage() {
       fetchAttendance();
     } catch (error) {
       console.error("Error marking attendance:", error);
-      showMessage(`Failed to mark attendance: ${error.message}`);
+      showMessage(`Failed to mark attendance: ${error.message}`, 'error');
     }
   };
 
@@ -469,11 +575,12 @@ export default function TeacherHomepage() {
   const handleGenerateInvoice = async (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student) {
-      showMessage('Student not found.');
+      showMessage('Student not found.', 'error');
       return;
     }
 
     try {
+      // Fetch attendance records for the student for the selected month
       const attendanceQuery = query(collection(db, 'attendance'),
         where('studentId', '==', student.id),
         where('teacherId', '==', currentUser.uid),
@@ -482,9 +589,95 @@ export default function TeacherHomepage() {
         where('date', '<=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-31`)
       );
       const attendanceSnapshot = await getDocs(attendanceQuery);
-      const presentDays = attendanceSnapshot.docs.length;
-      const amount = presentDays * 35;
 
+      if (attendanceSnapshot.empty) {
+        showMessage(`No attendance records found for ${student.name} in ${invoiceMonth}/${invoiceYear}`, 'warning');
+        return;
+      }
+
+      // Group attendance by subject
+      const attendanceBySubject = {};
+      attendanceSnapshot.docs.forEach(d => {
+        const data = d.data();
+        const subjectId = data.subjectId;
+
+        if (!attendanceBySubject[subjectId]) {
+          attendanceBySubject[subjectId] = {
+            count: 0,
+            subjectId: subjectId
+          };
+        }
+        attendanceBySubject[subjectId].count++;
+      });
+
+      // Build invoice data with subject details
+      const invoiceData = [];
+      let grandTotal = 0;
+      const hourlyRate = student.hourlyRate || 35;
+
+      for (const subjectId in attendanceBySubject) {
+        const subject = subjects.find(s => s.id === subjectId);
+        const sessionCount = attendanceBySubject[subjectId].count;
+        const subtotal = sessionCount * hourlyRate;
+        grandTotal += subtotal;
+
+        invoiceData.push({
+          subjectName: subject ? subject.name : 'Unknown Subject',
+          sessions: sessionCount,
+          rate: hourlyRate,
+          subtotal: subtotal
+        });
+      }
+
+      // Generate PDF
+      const pdf = new jsPDF();
+
+      // Header
+      pdf.setFontSize(20);
+      pdf.text('INVOICE', 105, 20, { align: 'center' });
+
+      pdf.setFontSize(12);
+      pdf.text(`Student: ${student.name}`, 20, 35);
+      pdf.text(`Period: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
+      pdf.text(`Date: ${new Date().toLocaleDateString()}`, 20, 49);
+
+      // Table
+      const tableData = invoiceData.map(item => [
+        item.subjectName,
+        item.sessions,
+        `RM ${item.rate.toFixed(2)}`,
+        `RM ${item.subtotal.toFixed(2)}`
+      ]);
+
+      autoTable(pdf, {
+        startY: 60,
+        head: [['Subject', 'Sessions', 'Rate per Session', 'Subtotal']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [59, 130, 246] },
+        styles: { fontSize: 10 },
+        columnStyles: {
+          0: { cellWidth: 80 },
+          1: { cellWidth: 30, halign: 'center' },
+          2: { cellWidth: 40, halign: 'right' },
+          3: { cellWidth: 40, halign: 'right' }
+        }
+      });
+
+      // Grand Total
+      const finalY = pdf.lastAutoTable?.finalY || 60;
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+
+      // Save PDF
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthName = monthNames[invoiceMonth - 1];
+      const fileName = `${student.name.replace(/\s+/g, '_')}_${monthName}${invoiceYear}.pdf`;
+      pdf.save(fileName);
+
+      // Save invoice record to Firestore
       const existingInvoiceQuery = query(collection(db, 'invoices'),
         where('studentId', '==', student.id),
         where('teacherId', '==', currentUser.uid),
@@ -499,25 +692,26 @@ export default function TeacherHomepage() {
           teacherId: currentUser.uid,
           month: invoiceMonth,
           year: invoiceYear,
-          amount,
+          amount: grandTotal,
           status: 'pending',
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: 35 },
+          details: { breakdown: invoiceData, grandTotal },
         });
       } else {
         const invoiceId = existingInvoiceSnapshot.docs[0].id;
         await updateDoc(doc(db, 'invoices', invoiceId), {
-          amount,
+          amount: grandTotal,
           status: 'pending',
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: 35 },
+          details: { breakdown: invoiceData, grandTotal },
         });
       }
-      showMessage(`Invoice generated for ${student.name} for ${invoiceMonth}/${invoiceYear} successfully!`);
+
+      showMessage(`Invoice PDF generated for ${student.name}!`);
       fetchInvoices();
     } catch (error) {
-      console.error("Error generating invoices:", error);
-      showMessage(`Failed to generate invoices: ${error.message}`);
+      console.error("Error generating invoice:", error);
+      showMessage(`Failed to generate invoice: ${error.message}`, 'error');
     }
   };
 
@@ -790,12 +984,14 @@ export default function TeacherHomepage() {
                         />
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="newStudentEmail" className="text-right">Email</Label>
+                        <Label htmlFor="newStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
                         <Input
-                          id="newStudentEmail"
-                          type="email"
-                          value={newStudentEmail}
-                          onChange={(e) => setNewStudentEmail(e.target.value)}
+                          id="newStudentHourlyRate"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={newStudentHourlyRate}
+                          onChange={(e) => setNewStudentHourlyRate(e.target.value)}
                           className="col-span-3"
                         />
                       </div>
@@ -815,7 +1011,7 @@ export default function TeacherHomepage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Name</TableHead>
-                          <TableHead>Email</TableHead>
+                          <TableHead>Hourly Rate</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -823,7 +1019,7 @@ export default function TeacherHomepage() {
                         {students.map(student => (
                           <TableRow key={student.id}>
                             <TableCell className="font-medium">{student.name}</TableCell>
-                            <TableCell>{student.email}</TableCell>
+                            <TableCell>RM{student.hourlyRate || 35}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
                                 <Dialog>
@@ -847,12 +1043,14 @@ export default function TeacherHomepage() {
                                         />
                                       </div>
                                       <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="editStudentEmail" className="text-right">Email</Label>
+                                        <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
                                         <Input
-                                          id="editStudentEmail"
-                                          type="email"
-                                          value={editingStudent?.email || ''}
-                                          onChange={(e) => setEditingStudent({ ...editingStudent, email: e.target.value })}
+                                          id="editStudentHourlyRate"
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={editingStudent?.hourlyRate || ''}
+                                          onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
                                           className="col-span-3"
                                         />
                                       </div>
@@ -894,49 +1092,91 @@ export default function TeacherHomepage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {students.length === 0 ? (
-                  <p className="text-center py-8 text-gray-500">No students to mark attendance for.</p>
-                ) : (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Student Name</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {students.map(student => (
-                          <TableRow key={student.id}>
-                            <TableCell className="font-medium">{student.name}</TableCell>
-                            <TableCell className="capitalize">
-                              {attendanceRecords[student.id]?.status || 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant={attendanceRecords[student.id]?.status === 'present' ? 'default' : 'outline'}
-                                  onClick={() => handleMarkAttendance(student.id, 'present')}
-                                >
-                                  Present
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={attendanceRecords[student.id]?.status === 'absent' ? 'destructive' : 'outline'}
-                                  onClick={() => handleMarkAttendance(student.id, 'absent')}
-                                >
-                                  Absent
-                                </Button>
+                {(() => {
+                  const classesForDate = getClassesForDate(attendanceDate);
+
+                  if (classesForDate.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p>No classes scheduled for this date</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-6">
+                      {classesForDate.map(subject => {
+                        const studentsInClass = getStudentsForSubject(subject.id);
+
+                        if (studentsInClass.length === 0) {
+                          return null;
+                        }
+
+                        return (
+                          <div key={subject.id} className="border rounded-lg p-4">
+                            <div className="flex items-center gap-3 mb-4">
+                              <BookOpen className="w-5 h-5 text-blue-500" />
+                              <div>
+                                <h3 className="font-semibold text-lg">{subject.name}</h3>
+                                <p className="text-sm text-gray-600">
+                                  {formatTime(subject.startTime)} - {formatTime(subject.endTime)}
+                                </p>
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
+                            </div>
+                            <div className="rounded-md border">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Student Name</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Actions</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {studentsInClass.map(student => {
+                                    const attendanceKey = `${student.id}_${subject.id}`;
+                                    const attendanceRecord = Object.values(attendanceRecords).find(
+                                      record => attendanceRecords[attendanceKey]
+                                    );
+                                    const status = attendanceRecords[attendanceKey]?.status;
+
+                                    return (
+                                      <TableRow key={student.id}>
+                                        <TableCell className="font-medium">{student.name}</TableCell>
+                                        <TableCell className="capitalize">
+                                          {status || 'N/A'}
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className="flex gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant={status === 'present' ? 'default' : 'outline'}
+                                              onClick={() => handleMarkAttendance(student.id, 'present', subject.id)}
+                                            >
+                                              Present
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant={status === 'absent' ? 'destructive' : 'outline'}
+                                              onClick={() => handleMarkAttendance(student.id, 'absent', subject.id)}
+                                            >
+                                              Absent
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </TabsContent>
@@ -986,7 +1226,7 @@ export default function TeacherHomepage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Student Name</TableHead>
-                              <TableHead>Email</TableHead>
+                              <TableHead>Hourly Rate</TableHead>
                               <TableHead>Actions</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -994,7 +1234,7 @@ export default function TeacherHomepage() {
                             {students.map(student => (
                               <TableRow key={student.id}>
                                 <TableCell className="font-medium">{student.name}</TableCell>
-                                <TableCell>{student.email}</TableCell>
+                                <TableCell>RM{student.hourlyRate || 35}</TableCell>
                                 <TableCell>
                                   <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>
                                     Generate Invoice
@@ -1116,22 +1356,40 @@ export default function TeacherHomepage() {
                       </div>
                       {newSubject.recurring === 'weekly' && (
                         <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="subjectDay" className="text-right">Day of Week</Label>
-                          <select
-                            id="subjectDay"
-                            value={newSubject.dayOfWeek}
-                            onChange={(e) => setNewSubject({ ...newSubject, dayOfWeek: e.target.value })}
-                            className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                          >
-                            <option value="">Select a day</option>
-                            <option value="0">Sunday</option>
-                            <option value="1">Monday</option>
-                            <option value="2">Tuesday</option>
-                            <option value="3">Wednesday</option>
-                            <option value="4">Thursday</option>
-                            <option value="5">Friday</option>
-                            <option value="6">Saturday</option>
-                          </select>
+                          <Label className="text-right">Days of Week</Label>
+                          <div className="col-span-3 space-y-2 border rounded-md p-3">
+                            {[
+                              { value: 0, label: 'Sunday' },
+                              { value: 1, label: 'Monday' },
+                              { value: 2, label: 'Tuesday' },
+                              { value: 3, label: 'Wednesday' },
+                              { value: 4, label: 'Thursday' },
+                              { value: 5, label: 'Friday' },
+                              { value: 6, label: 'Saturday' }
+                            ].map((day) => (
+                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={newSubject.daysOfWeek.includes(day.value.toString())}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setNewSubject({
+                                        ...newSubject,
+                                        daysOfWeek: [...newSubject.daysOfWeek, day.value.toString()]
+                                      });
+                                    } else {
+                                      setNewSubject({
+                                        ...newSubject,
+                                        daysOfWeek: newSubject.daysOfWeek.filter(d => d !== day.value.toString())
+                                      });
+                                    }
+                                  }}
+                                  className="w-4 h-4"
+                                />
+                                <span className="text-sm">{day.label}</span>
+                              </label>
+                            ))}
+                          </div>
                         </div>
                       )}
                       {newSubject.recurring === 'none' && (
@@ -1166,7 +1424,11 @@ export default function TeacherHomepage() {
                               <div className="flex items-center gap-3 mb-2">
                                 <h3 className="font-semibold text-lg">{subject.name}</h3>
                                 {subject.recurring === 'weekly' && (
-                                  <Badge variant="secondary">Weekly - {getDayName(subject.dayOfWeek)}</Badge>
+                                  <Badge variant="secondary">
+                                    Weekly - {subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+                                      ? formatDaysOfWeek(subject.daysOfWeek)
+                                      : getDayName(subject.dayOfWeek)}
+                                  </Badge>
                                 )}
                                 {subject.recurring === 'none' && subject.date && (
                                   <Badge variant="outline">{subject.date}</Badge>
@@ -1189,14 +1451,107 @@ export default function TeacherHomepage() {
                                 )}
                               </div>
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDeleteSubject(subject.id)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              Delete
-                            </Button>
+                            <div className="flex gap-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setEditingSubject(subject)}
+                                  >
+                                    Edit
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Edit Subject</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="grid gap-4 py-4">
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="editSubjectName" className="text-right">Subject Name</Label>
+                                      <Input
+                                        id="editSubjectName"
+                                        value={editingSubject?.name || ''}
+                                        onChange={(e) => setEditingSubject({ ...editingSubject, name: e.target.value })}
+                                        className="col-span-3"
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="editSubjectStartTime" className="text-right">Start Time</Label>
+                                      <Input
+                                        id="editSubjectStartTime"
+                                        type="time"
+                                        value={editingSubject?.startTime || ''}
+                                        onChange={(e) => setEditingSubject({ ...editingSubject, startTime: e.target.value })}
+                                        className="col-span-3"
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="editSubjectEndTime" className="text-right">End Time</Label>
+                                      <Input
+                                        id="editSubjectEndTime"
+                                        type="time"
+                                        value={editingSubject?.endTime || ''}
+                                        onChange={(e) => setEditingSubject({ ...editingSubject, endTime: e.target.value })}
+                                        className="col-span-3"
+                                      />
+                                    </div>
+                                    {editingSubject?.recurring === 'weekly' && (
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label className="text-right">Days of Week</Label>
+                                        <div className="col-span-3 space-y-2 border rounded-md p-3">
+                                          {[
+                                            { value: 0, label: 'Sunday' },
+                                            { value: 1, label: 'Monday' },
+                                            { value: 2, label: 'Tuesday' },
+                                            { value: 3, label: 'Wednesday' },
+                                            { value: 4, label: 'Thursday' },
+                                            { value: 5, label: 'Friday' },
+                                            { value: 6, label: 'Saturday' }
+                                          ].map((day) => {
+                                            const daysArray = editingSubject?.daysOfWeek || (editingSubject?.dayOfWeek !== undefined ? [editingSubject.dayOfWeek] : []);
+                                            const daysAsStrings = daysArray.map(d => String(d));
+                                            return (
+                                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={daysAsStrings.includes(String(day.value))}
+                                                  onChange={(e) => {
+                                                    let newDays;
+                                                    if (e.target.checked) {
+                                                      newDays = [...daysAsStrings, String(day.value)];
+                                                    } else {
+                                                      newDays = daysAsStrings.filter(d => d !== String(day.value));
+                                                    }
+                                                    setEditingSubject({
+                                                      ...editingSubject,
+                                                      daysOfWeek: newDays
+                                                    });
+                                                  }}
+                                                  className="w-4 h-4"
+                                                />
+                                                <span className="text-sm">{day.label}</span>
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <DialogFooter>
+                                    <Button type="submit" onClick={handleUpdateSubject}>Save Changes</Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteSubject(subject.id)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                Delete
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -1225,29 +1580,62 @@ export default function TeacherHomepage() {
                         <option value="">Select a subject</option>
                         {subjects.map(subject => (
                           <option key={subject.id} value={subject.id}>
-                            {subject.name} ({subject.recurring === 'weekly' ? getDayName(subject.dayOfWeek) : subject.date})
+                            {subject.name} ({subject.recurring === 'weekly'
+                              ? (subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+                                  ? formatDaysOfWeek(subject.daysOfWeek)
+                                  : getDayName(subject.dayOfWeek))
+                              : subject.date})
                           </option>
                         ))}
                       </select>
                     </div>
 
                     <div>
-                      <Label>Select Students (hold Ctrl/Cmd to select multiple)</Label>
-                      <select
-                        multiple
-                        value={selectedStudentsForAssignment}
-                        onChange={(e) => {
-                          const selected = Array.from(e.target.selectedOptions, option => option.value);
-                          setSelectedStudentsForAssignment(selected);
-                        }}
-                        className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                      >
-                        {students.map(student => (
-                          <option key={student.id} value={student.id}>
-                            {student.name}
-                          </option>
-                        ))}
-                      </select>
+                      <Label>Search and Select Students</Label>
+                      <Input
+                        placeholder="Type to search students..."
+                        value={studentSearchQuery}
+                        onChange={(e) => setStudentSearchQuery(e.target.value)}
+                        className="mb-3"
+                      />
+                      <div className="border rounded-md p-3 max-h-[240px] overflow-y-auto">
+                        {students.filter(student =>
+                          student.name.toLowerCase().includes(studentSearchQuery.toLowerCase())
+                        ).length === 0 ? (
+                          <p className="text-sm text-gray-500 text-center py-4">No students found</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {students
+                              .filter(student =>
+                                student.name.toLowerCase().includes(studentSearchQuery.toLowerCase())
+                              )
+                              .map(student => (
+                                <label key={student.id} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedStudentsForAssignment.includes(student.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedStudentsForAssignment([...selectedStudentsForAssignment, student.id]);
+                                      } else {
+                                        setSelectedStudentsForAssignment(
+                                          selectedStudentsForAssignment.filter(id => id !== student.id)
+                                        );
+                                      }
+                                    }}
+                                    className="w-4 h-4"
+                                  />
+                                  <span className="text-sm">{student.name}</span>
+                                </label>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                      {selectedStudentsForAssignment.length > 0 && (
+                        <p className="text-sm text-gray-600 mt-2">
+                          {selectedStudentsForAssignment.length} student(s) selected
+                        </p>
+                      )}
                     </div>
 
                     <Button onClick={handleAssignStudentsToSubject}>Assign Students to Subject</Button>
@@ -1267,7 +1655,7 @@ export default function TeacherHomepage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Student Name</TableHead>
-                                <TableHead>Email</TableHead>
+                                <TableHead>Hourly Rate</TableHead>
                                 <TableHead>Actions</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1275,7 +1663,7 @@ export default function TeacherHomepage() {
                               {getAssignedStudentsForSubject(selectedSubjectForAssignment).map(student => (
                                 <TableRow key={student.assignmentId}>
                                   <TableCell className="font-medium">{student.name}</TableCell>
-                                  <TableCell>{student.email}</TableCell>
+                                  <TableCell>RM{student.hourlyRate || 35}</TableCell>
                                   <TableCell>
                                     <Button
                                       variant="destructive"
