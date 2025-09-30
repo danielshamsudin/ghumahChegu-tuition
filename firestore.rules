@@ -49,5 +49,36 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
       );
     }
+
+    match /subjects/{subjectId} {
+      allow create: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && request.resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
+      );
+      allow read: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
+      );
+      allow update, delete: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
+      );
+    }
+
+    match /subjectAssignments/{assignmentId} {
+      allow create: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && request.resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
+      );
+      allow read: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin' ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student' && resource.data.studentId == request.auth.uid)
+      );
+      allow update, delete: if request.auth != null && (
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' && resource.data.teacherId == request.auth.uid) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin'
+      );
+    }
   }
 }
