@@ -93,6 +93,7 @@ export default function TeacherHomepage() {
     filterTodaysClasses();
   }, [selectedDate, subjects, subjectAssignments, students]);
 
+
   useEffect(() => {
     fetchAttendance();
   }, [currentUser, userRole, attendanceDate]);
@@ -187,8 +188,16 @@ export default function TeacherHomepage() {
     }
   };
 
+  // Helper function to format date in local timezone as YYYY-MM-DD
+  const formatDateLocal = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const filterTodaysClasses = () => {
-    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const selectedDateStr = formatDateLocal(selectedDate);
     const dayOfWeek = selectedDate.getDay();
 
     // Build classes from subjects + assignments
@@ -398,7 +407,7 @@ export default function TeacherHomepage() {
   };
 
   const hasClassesOnDate = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDateLocal(date);
     const dayOfWeek = date.getDay();
 
     return subjects.some(subject => {
@@ -502,7 +511,9 @@ export default function TeacherHomepage() {
 
   // Get classes for a specific date
   const getClassesForDate = (dateStr) => {
-    const date = new Date(dateStr);
+    // Parse date string as local time to avoid timezone issues
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
     const dayOfWeek = date.getDay();
 
     return subjects.filter(subject => {
@@ -864,7 +875,7 @@ export default function TeacherHomepage() {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle>
-                      Classes for {selectedDate.toLocaleDateString('en-US', {
+                      Classes for {(selectedDate || new Date()).toLocaleDateString('en-US', {
                         weekday: 'long',
                         year: 'numeric',
                         month: 'long',

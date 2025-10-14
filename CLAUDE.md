@@ -104,6 +104,13 @@ Complex role-based rules in `firestore.rules`:
 - Hourly rates are custom per student (default RM35 when creating new students)
 - When importing jsPDF, use: `import { jsPDF } from 'jspdf'` and `import autoTable from 'jspdf-autotable'`
 
+### Server Restart Protocol
+**IMPORTANT**: For crucial changes (especially component logic, state management, or data handling), the Next.js dev server MUST be restarted to ensure changes are properly compiled and cached:
+- If Claude is running the server: Kill and restart the background shell
+- If user is running the server: Remind them to restart with Ctrl+C then `npm run dev`
+- Hard refresh browser (Ctrl+Shift+R) after server restart
+- Turbopack hot reload is not always reliable for major changes
+
 ## Key Features
 
 ### Student Management
