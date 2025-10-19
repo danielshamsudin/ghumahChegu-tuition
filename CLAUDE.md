@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a tuition management system built with Next.js 15 and Firebase. The application manages three user roles: superadmin, teacher, and student. It provides functionality for student registration, attendance tracking, subject assignment, and invoice generation.
+This is a tuition management system built with Next.js 15 and Firebase. The application manages three user roles: superadmin, teacher, and student. It provides functionality for student registration with custom hourly rates, class/subject scheduling with multi-day recurrence, attendance tracking grouped by subjects, and automated PDF invoice generation with detailed breakdowns.
 
 ## Common Commands
 
@@ -38,22 +38,32 @@ This is a tuition management system built with Next.js 15 and Firebase. The appl
 - Firebase Auth with role-based access control
 - User roles stored in Firestore `/users/{uid}` collection with `role` field
 - AuthContext provides `currentUser`, `userRole`, and `loading` state
-- Auth flow:
-  1. User signs in via `/login`
-  2. `onAuthStateChanged` listener in AuthContext fetches user role from Firestore
-  3. Dashboard route (`/dashboard`) handles role-based rendering:
-     - Teachers see TeacherHomepage component
-     - Superadmins see links to superadmin and legacy teacher panels
-- Protected routes check `currentUser` and redirect to `/login` if not authenticated
+- Role-based routing:
+  - `/` redirects to `/login` if not authenticated, `/dashboard` if authenticated
+  - Teachers → `/dashboard` (TeacherHomepage component)
+  - Superadmin → `/superadmin` or `/dashboard`
+  - Legacy teacher panel at `/teacher` (kept for backward compatibility)
 
 ### Database Schema
 Firestore collections:
-- `users`: User profiles with `role` field (superadmin/teacher/student)
-- `students`: Student records with `teacherId` (linked to teacher who created them)
-- `attendance`: Attendance records with `teacherId` and `studentId`
-- `invoices`: Generated invoices with `teacherId`, `studentId`, month, year, amount, status
-- `subjects`: Subject records with `teacherId`
-- `subjectAssignments`: Subject assignments with `teacherId` and `studentId`
+- `users`: User profiles with role field (superadmin/teacher/student)
+- `students`: Student records with fields:
+  - `name` (required), `email` (optional), `hourlyRate` (required, custom per student)
+  - `teacherId` (links to teacher), `createdAt`
+- `subjects`: Class/subject schedules with fields:
+  - `name`, `startTime`, `endTime`, `teacherId`
+  - `recurring`: 'weekly' or 'none'
+  - `daysOfWeek`: Array of day numbers [0-6] for weekly recurring (supports multiple days)
+  - `date`: Specific date string for one-time classes
+  - Backward compatible with old `dayOfWeek` single-day format
+- `subjectAssignments`: Links students to subjects
+  - `studentId`, `subjectId`, `teacherId`, `createdAt`
+- `attendance`: Attendance records with fields:
+  - `studentId`, `subjectId`, `teacherId`, `date`, `status` ('present'/'absent')
+  - Tracks attendance per student per subject per date
+- `invoices`: Generated invoice records with fields:
+  - `studentId`, `teacherId`, `month`, `year`, `amount`, `status`
+  - `details`: Object containing breakdown by subject and grand total
 
 ### Firebase Security Rules (firestore.rules)
 Role-based security rules enforce data access:
@@ -87,24 +97,98 @@ Role-based security rules enforce data access:
 - **Invoice generation**: Per-student with month/year selection
 - **Invoice fields**: studentId, studentName, teacherId, month, year, amount, status, createdAt
 
+### Main Components
+- `src/app/page.js`: Root route with authentication-based redirect
+- `src/app/dashboard/page.js`: Main dashboard, renders TeacherHomepage for teachers
+- `src/components/TeacherHomepage.jsx`: Primary teacher interface with tabs:
+  - Overview: Calendar and today's classes
+  - Students: Manage students with hourly rates
+  - Attendance: Mark attendance grouped by subjects
+  - Invoices: Generate PDF receipts
+  - Classes: Manage subjects and student assignments
+
+## Dependencies
+
+### Core
+- Next.js 15 with App Router and Turbopack
+- React 19
+- Firebase (auth, firestore)
+- Tailwind CSS
+- shadcn/ui components
+
+### PDF Generation
+- `jspdf`: PDF creation library
+- `jspdf-autotable`: Table plugin for jsPDF
+
+### Icons
+- `lucide-react`: Icon library
+
 ## Development Notes
 
-- **Language**: JavaScript (.js/.jsx) rather than TypeScript
-- **React version**: React 19.1.0 (latest)
-- **Next.js version**: 15.5.3 with Turbopack enabled
-- **Tailwind CSS**: v4 (using @tailwindcss/postcss)
-- **Firebase config**: Live API keys are in `src/lib/firebase.js` (consider environment variables for production)
-- **Component style**: Always use JSX extensions and syntax (NOT TSX)
+- The codebase uses JavaScript (.js/.jsx) rather than TypeScript
+- Firebase config contains live API keys (consider environment variables for production)
+- Currency is RM (Malaysian Ringgit)
+- Hourly rates are custom per student (default RM35 when creating new students)
+- When importing jsPDF, use: `import { jsPDF } from 'jspdf'` and `import autoTable from 'jspdf-autotable'`
 
-## Known Issues & Important Notes
+## Key Features
 
-### Firestore Security Rules
-From GEMINI.md, two major issues were resolved:
+### Student Management
+- Add/edit/delete students with custom hourly rates
+- Email field is optional (only name and hourly rate required)
+- Students displayed with their individual rates
 
-1. **Read permissions issue**: Changed from `request.query.get('fieldId')` to `resource.data.fieldId` for attendance and invoices read operations
-2. **Delete permissions issue**: Changed from `request.resource.data.teacherId` to `resource.data.teacherId` for delete operations (`request.resource` is not available during delete)
+### Subject/Class Management
+- Create subjects with name and time slots
+- Support for weekly recurring (multiple days per week) or one-time classes
+- Example: A subject can recur on Monday, Wednesday, and Friday
+- Edit subjects to change name, times, and recurring days
+- Assign students to subjects with searchable checkbox interface
+- Calendar view shows days with scheduled classes
 
-### Routing Structure
-- Teachers use `/dashboard` route (NOT `/teacher`)
-- The `/teacher` route exists as "Legacy Teacher Panel" but is primarily for superadmin access
-- Dashboard route renders different UI based on `userRole` from AuthContext
+### Attendance Tracking
+- Attendance tab shows only classes scheduled for selected date
+- Students grouped by their subjects/classes
+- Each subject displays its time and enrolled students
+- Attendance tracked per student per subject per date
+- Supports students attending multiple classes on same day
+
+### Invoice Generation
+- Generates PDF receipts with filename format: `{StudentName}_{MonthYear}.pdf`
+- PDF contains detailed breakdown:
+  - Table showing each subject attended
+  - Number of sessions per subject
+  - Rate per session (student's hourly rate)
+  - Subtotal per subject
+  - Grand total for the month
+- Uses jsPDF and jspdf-autotable libraries
+- Professional formatted receipts with blue headers and striped rows
+- Automatically saves invoice record to Firestore
+
+## Important Implementation Details
+
+### Multi-Day Recurring Classes
+- Subjects store `daysOfWeek` as an array of integers [0-6] where 0=Sunday, 6=Saturday
+- Old single-day format (`dayOfWeek` as single integer) is backward compatible
+- Filtering logic checks both new array format and old single-day format
+- UI uses checkboxes for selecting multiple days when creating/editing subjects
+
+### Attendance System
+- Composite key used: `${studentId}_${subjectId}` for tracking attendance records
+- Allows same student to have different attendance status for different classes on same day
+- fetchAttendance() creates unique keys combining student and subject IDs
+- handleMarkAttendance() saves with subjectId field in Firestore
+
+### Student Search in Assignment
+- Real-time filtering as user types in search field
+- Checkbox interface for multi-select (no need for Ctrl/Cmd)
+- Shows count of selected students
+- Prevents duplicate assignments (checks existing before adding)
+
+### PDF Generation Flow
+1. Query attendance records filtered by student, teacher, month, and 'present' status
+2. Group attendance records by subjectId
+3. Calculate sessions per subject and subtotal (sessions × hourly rate)
+4. Generate PDF using jsPDF with autoTable for formatted table
+5. Save PDF with descriptive filename
+6. Store invoice record in Firestore with breakdown details
