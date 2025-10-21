@@ -130,6 +130,7 @@ Role-based security rules enforce data access:
 - Currency is RM (Malaysian Ringgit)
 - Hourly rates are custom per student (default RM35 when creating new students)
 - When importing jsPDF, use: `import { jsPDF } from 'jspdf'` and `import autoTable from 'jspdf-autotable'`
+- App metadata configured in `src/app/layout.js` with title "Tuition Management System"
 
 ## Key Features
 
@@ -156,14 +157,20 @@ Role-based security rules enforce data access:
 ### Invoice Generation
 - Generates PDF receipts with filename format: `{StudentName}_{MonthYear}.pdf`
 - PDF contains detailed breakdown:
-  - Table showing each subject attended
+  - Company logo at top right (`/public/logo.jpeg`)
+  - Table showing each subject attended with specific dates (dd/mm format)
   - Number of sessions per subject
   - Rate per session (student's hourly rate)
   - Subtotal per subject
   - Grand total for the month
+  - Payment terms and notes section
+  - QR code for payment (`/public/qr.png`)
+  - Teacher signature line
 - Uses jsPDF and jspdf-autotable libraries
-- Professional formatted receipts with blue headers and striped rows
-- Automatically saves invoice record to Firestore
+- Professional formatted receipts with blue headers, bold fonts, and striped rows
+- Date formatting uses local timezone (dd/mm/yyyy format)
+- Invoice number format: MM/YYYY
+- Automatically saves invoice record to Firestore with breakdown details
 
 ## Important Implementation Details
 
@@ -187,8 +194,20 @@ Role-based security rules enforce data access:
 
 ### PDF Generation Flow
 1. Query attendance records filtered by student, teacher, month, and 'present' status
-2. Group attendance records by subjectId
+2. Group attendance records by subjectId and collect all dates
 3. Calculate sessions per subject and subtotal (sessions × hourly rate)
-4. Generate PDF using jsPDF with autoTable for formatted table
-5. Save PDF with descriptive filename
+4. Generate PDF using jsPDF with:
+   - Company logo loaded from `/public/logo.jpeg`
+   - Header with invoice title, student name, invoice number, and date
+   - autoTable with subject details including formatted dates
+   - Payment notes and terms
+   - QR code for payment from `/public/qr.png`
+   - Teacher signature section
+5. Save PDF with descriptive filename format: `{StudentName}_{MonthName}{Year}.pdf`
 6. Store invoice record in Firestore with breakdown details
+
+### Date Handling
+- Uses `getLocalDateString()` helper function to avoid timezone issues
+- Formats dates as YYYY-MM-DD for storage and comparison
+- Displays dates as dd/mm/yyyy in PDFs and UI
+- Calendar date filtering uses local date strings to prevent off-by-one day errors

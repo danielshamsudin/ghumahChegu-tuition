@@ -97,6 +97,14 @@ export default function TeacherHomepage() {
     fetchAttendance();
   }, [currentUser, userRole, attendanceDate]);
 
+  // Helper function to get local date string in YYYY-MM-DD format
+  const getLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const fetchStudents = async () => {
     try {
       const studentsCollectionRef = collection(db, 'students');
@@ -188,7 +196,7 @@ export default function TeacherHomepage() {
   };
 
   const filterTodaysClasses = () => {
-    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const selectedDateStr = getLocalDateString(selectedDate);
     const dayOfWeek = selectedDate.getDay();
 
     // Build classes from subjects + assignments
@@ -398,7 +406,7 @@ export default function TeacherHomepage() {
   };
 
   const hasClassesOnDate = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = getLocalDateString(date);
     const dayOfWeek = date.getDay();
 
     return subjects.some(subject => {
@@ -595,7 +603,7 @@ export default function TeacherHomepage() {
         return;
       }
 
-      // Group attendance by subject
+      // Group attendance by subject and collect dates
       const attendanceBySubject = {};
       attendanceSnapshot.docs.forEach(d => {
         const data = d.data();
@@ -604,10 +612,12 @@ export default function TeacherHomepage() {
         if (!attendanceBySubject[subjectId]) {
           attendanceBySubject[subjectId] = {
             count: 0,
-            subjectId: subjectId
+            subjectId: subjectId,
+            dates: []
           };
         }
         attendanceBySubject[subjectId].count++;
+        attendanceBySubject[subjectId].dates.push(data.date);
       });
 
       // Build invoice data with subject details
@@ -621,8 +631,18 @@ export default function TeacherHomepage() {
         const subtotal = sessionCount * hourlyRate;
         grandTotal += subtotal;
 
+        // Format dates as dd/mm
+        const formattedDates = attendanceBySubject[subjectId].dates
+          .sort()
+          .map(dateStr => {
+            const [year, month, day] = dateStr.split('-');
+            return `${day}/${month}`;
+          })
+          .join(', ');
+
         invoiceData.push({
           subjectName: subject ? subject.name : 'Unknown Subject',
+          dates: formattedDates,
           sessions: sessionCount,
           rate: hourlyRate,
           subtotal: subtotal
@@ -632,18 +652,38 @@ export default function TeacherHomepage() {
       // Generate PDF
       const pdf = new jsPDF();
 
+      // Add logo to top right
+      try {
+        const logoImg = new Image();
+        logoImg.src = '/logo.jpeg';
+        await new Promise((resolve, reject) => {
+          logoImg.onload = resolve;
+          logoImg.onerror = reject;
+        });
+        // Add logo at top right (x=150, y=10, width=40, height=auto)
+        pdf.addImage(logoImg, 'JPEG', 150, 10, 40, 0);
+      } catch (error) {
+        console.error('Error loading logo:', error);
+      }
+
       // Header
       pdf.setFontSize(20);
+      pdf.setFont('Helvetica', 'bold');
       pdf.text('INVOICE', 105, 20, { align: 'center' });
+      pdf.setFont('Helvetica', 'normal');
 
       pdf.setFontSize(12);
       pdf.text(`Student: ${student.name}`, 20, 35);
-      pdf.text(`Period: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
-      pdf.text(`Date: ${new Date().toLocaleDateString()}`, 20, 49);
+      pdf.text(`Invoice No.: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
+
+      // Format date as dd/mm/yyyy
+      const today = new Date();
+      const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+      pdf.text(`Date: ${formattedDate}`, 20, 49);
 
       // Table
       const tableData = invoiceData.map(item => [
-        item.subjectName,
+        `${item.subjectName}\n(${item.dates})`,
         item.sessions,
         `RM ${item.rate.toFixed(2)}`,
         `RM ${item.subtotal.toFixed(2)}`
@@ -654,8 +694,8 @@ export default function TeacherHomepage() {
         head: [['Subject', 'Sessions', 'Rate per Session', 'Subtotal']],
         body: tableData,
         theme: 'striped',
-        headStyles: { fillColor: [59, 130, 246] },
-        styles: { fontSize: 10 },
+        headStyles: { fillColor: [59, 130, 246], font: 'Helvetica', fontStyle: 'bold' },
+        styles: { fontSize: 10, font: 'Helvetica' },
         columnStyles: {
           0: { cellWidth: 80 },
           1: { cellWidth: 30, halign: 'center' },
@@ -667,8 +707,55 @@ export default function TeacherHomepage() {
       // Grand Total
       const finalY = pdf.lastAutoTable?.finalY || 60;
       pdf.setFontSize(12);
-      pdf.setFont(undefined, 'bold');
+      pdf.setFont('Helvetica', 'bold');
       pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+
+      // Footer - Notes
+      let footerY = finalY + 30;
+      pdf.setFontSize(10);
+      pdf.setFont('Helvetica', 'bold');
+      pdf.text('Notes:', 20, footerY);
+
+      pdf.setFont('Helvetica', 'normal');
+      footerY += 7;
+
+      // Split long text into multiple lines for better formatting
+      const notes = [
+        '\u2022 Class cancelled by the pupils is strictly cannot be replaced. This is due to the teacher\'s tuition',
+        '  schedule is pack.',
+        '\u2022 Class can be rescheduled by the teacher if needed.',
+        '\u2022 Payment shall only pay directly to teacher by online banking.',
+        '  \u2022 39201079312',
+        '  \u2022 GHUMAH CHEGU ENTERPRISE',
+        '  \u2022 HONG LEONG BANK (HLB)',
+        '\u2022 Payment term: 3 days after invoice date'
+      ];
+
+      notes.forEach((note, index) => {
+        pdf.text(note, 20, footerY);
+        footerY += 5;
+      });
+
+      // Add QR code aligned to the right
+      footerY += 3;
+      try {
+        const qrImg = new Image();
+        qrImg.src = '/qr.png';
+        await new Promise((resolve, reject) => {
+          qrImg.onload = resolve;
+          qrImg.onerror = reject;
+        });
+        // Add QR code at right side (x=150, width=40)
+        pdf.addImage(qrImg, 'PNG', 150, footerY - 5, 40, 40);
+      } catch (error) {
+        console.error('Error loading QR code:', error);
+      }
+
+      // Move closing text to bottom of page (A4 height is 297mm, leaving margin)
+      const bottomY = 270;
+      pdf.text('Thank you', 20, bottomY);
+      pdf.text('Sincerely,', 20, bottomY + 5);
+      pdf.text('Teacher Nana', 20, bottomY + 10);
 
       // Save PDF
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
