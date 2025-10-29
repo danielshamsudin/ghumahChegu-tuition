@@ -39,13 +39,13 @@ export default function DashboardPage() {
     return (
       <div className="relative">
         {/* Navigation bar for teachers */}
-        <nav className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-semibold">Tuition Management System</h1>
-              <div className="flex items-center space-x-4">
-                <span className="text-sm text-gray-600">Welcome, {currentUser.email}</span>
-                <Button variant="outline" size="sm" onClick={handleLogout}>
+        <nav className="bg-white shadow-sm border-b sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
+            <div className="flex justify-between items-center gap-2">
+              <h1 className="text-base md:text-xl font-semibold truncate flex-1">Tuition Management System</h1>
+              <div className="flex items-center gap-2 md:gap-4">
+                <span className="hidden sm:inline text-sm text-gray-600 truncate max-w-[200px]">Welcome, {currentUser.email}</span>
+                <Button variant="outline" size="sm" onClick={handleLogout} className="whitespace-nowrap">
                   Log Out
                 </Button>
               </div>

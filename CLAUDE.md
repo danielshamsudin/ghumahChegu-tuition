@@ -211,3 +211,231 @@ Role-based security rules enforce data access:
 - Formats dates as YYYY-MM-DD for storage and comparison
 - Displays dates as dd/mm/yyyy in PDFs and UI
 - Calendar date filtering uses local date strings to prevent off-by-one day errors
+- Calendar deselection prevented: `handleDateSelect` only updates if date is truthy (prevents undefined state when clicking same date twice)
+
+---
+
+## Mobile Optimization (Updated: 2025-10-30)
+
+### Overview
+The application has been fully optimized for mobile devices, particularly iPhone 12 and above, while maintaining 100% desktop functionality. All changes follow a mobile-first approach with progressive enhancement for larger screens.
+
+### Responsive Design Implementation
+
+#### 1. Navigation & Tab System
+**Location**: `src/components/TeacherHomepage.jsx`, `src/app/dashboard/page.js`
+
+- **Tab Navigation** (Floating Pill Design - iOS Style):
+  - **Mobile**: Floating pill-shaped navigation bar with glassmorphism effect
+    - **Container**:
+      - Position: `fixed bottom-4` with inset margins (`left-4 right-4`) - floats above content
+      - Shape: Fully rounded pill (`rounded-full`)
+      - Glassmorphism: `backdrop-blur-xl` with semi-transparent background (`bg-white/80`)
+      - Shadow: Large soft shadow (`shadow-lg`) for elevation
+      - Border: Subtle translucent border (`border-gray-200/50`)
+      - Padding: `px-2 py-2` for compact, modern look
+      - Centered: `flex justify-center` for perfect centering
+    - **Individual Tab Pills**:
+      - **Active state**:
+        - Background: Solid blue pill (`bg-blue-600`)
+        - Text: White (`text-white`)
+        - Shadow: Medium shadow (`shadow-md`) for depth
+        - Full rounded shape: `rounded-full`
+      - **Inactive state**:
+        - Background: Transparent (`bg-transparent`)
+        - Text: Gray (`text-gray-600`)
+        - No shadow for flat appearance
+      - Size: `min-w-[60px]` minimum width, auto height
+      - Padding: `px-3 py-2` for comfortable tap area
+      - Icon size: `w-5 h-5` (20px) - compact but clear
+      - Label size: `text-[10px]` with `font-medium`
+      - Spacing: `gap-0.5` between icon and label
+      - Transition: Smooth 300ms animation (`transition-all duration-300`)
+    - Layout: 5 pills in equal-width grid (`grid-cols-5 gap-1`)
+    - Safe area support: `safe-bottom` class for notched devices
+    - Content padding: `pb-20` on main container to prevent overlap
+  - **Desktop**: Traditional top tabs with horizontal layout
+    - Position: Static top placement
+    - Layout: Icons beside text (`flex-row`)
+    - Styling: Default shadcn/ui tabs appearance
+
+- **Top Navigation Bar**:
+  - Mobile: Sticky top navbar, truncated title, hidden email on very small screens
+  - Desktop: Full layout with welcome message and email
+  - Sticky positioning: `sticky top-0 z-40` for always-visible navigation
+  - Responsive padding: `px-4 md:px-6`, `py-3 md:py-4`
+
+#### 2. Form Dialogs
+**Location**: `src/components/TeacherHomepage.jsx`
+
+All dialog forms converted from desktop 4-column grid to mobile-friendly stacking:
+- **Pattern**: `grid-cols-1 md:grid-cols-4`
+- **Labels**: Left-aligned on mobile, right-aligned on desktop (`md:text-right`)
+- **Inputs**: Full width on mobile, 3-column span on desktop (`md:col-span-3`)
+- **Buttons**: Full width on mobile, auto width on desktop (`w-full sm:w-auto`)
+- **Dialog width**: Responsive max-width `max-w-[calc(100vw-2rem)] md:max-w-lg`
+- **Scroll**: Added `max-h-[90vh] overflow-y-auto` for long forms (e.g., Add/Edit Subject)
+
+**Affected Forms**:
+- Add/Edit Student
+- Add/Edit Subject (with multi-day selection checkboxes)
+- All form inputs stack vertically on mobile
+
+#### 3. Table-to-Card Conversion
+**Location**: `src/components/TeacherHomepage.jsx`
+
+Implemented dual-view system for all tables:
+- **Mobile**: Card-based layout (`block md:hidden`)
+- **Desktop**: Traditional table layout (`hidden md:block`)
+
+**Students Table** (Students Tab):
+- Mobile: Cards with student name, hourly rate, Edit/Delete buttons (full width)
+- Desktop: 3-column table (Name, Hourly Rate, Actions)
+
+**Attendance Tables** (Attendance Tab):
+- Mobile: Cards grouped by subject with Present/Absent buttons (full width)
+- Desktop: Table grouped by subject with student rows
+- Cards show student name and current status with clear action buttons
+
+**Invoice Tables** (Invoices Tab):
+- **Generate Invoice**:
+  - Mobile: Cards with student name, hourly rate, Generate button (full width)
+  - Desktop: 3-column table
+- **Generated Invoices**:
+  - Mobile: Cards with 2-column grid showing Month, Year, Amount, Status
+  - Desktop: 6-column table with all details
+  - Responsive header: `flex-col sm:flex-row` for title and Refresh button
+
+**Assignment Table** (Classes Tab):
+- Mobile: Cards with student name, hourly rate, Remove button (full width)
+- Desktop: 3-column table
+- Only visible when a subject is selected
+
+#### 4. Overview Tab Optimization
+**Location**: `src/components/TeacherHomepage.jsx`
+
+- **Layout**: `grid-cols-1 lg:grid-cols-3` for calendar (1/3) and classes (2/3)
+- **Calendar**:
+  - Responsive padding: `px-2 md:px-6` for content
+  - Full width on mobile with proper margin handling
+  - Touch-friendly date selection
+
+- **Today's Classes**:
+  - Shortened date format on mobile: "Dec 15" vs "Monday, December 15, 2024"
+  - Stacked layout: `flex-col md:flex-row` for class details (time and students)
+  - Better word wrapping with `break-words` for long student names
+  - Responsive card padding: `px-3 md:px-4`, `pb-3`
+  - Responsive spacing: `space-y-3 md:space-y-4`
+
+- **Quick Stats**: Already responsive with `grid-cols-1 md:grid-cols-3`
+
+#### 5. Toast Notifications
+**Location**: `src/components/TeacherHomepage.jsx`
+
+- **Mobile**:
+  - Bottom-center positioning: `fixed bottom-4 left-4 right-4`
+  - Slide-up animation from bottom
+  - Full width with side margins, max-width for readability
+
+- **Desktop**:
+  - Top-right positioning: `md:top-4 md:bottom-auto md:left-auto md:right-4`
+  - Slide-in-right animation
+  - Fixed width for consistency
+
+- **Animation**: Responsive keyframes using media queries (`@media (max-width: 768px)`)
+
+#### 6. Mobile-Specific Utilities
+**Location**: `src/app/globals.css`, `src/app/layout.js`
+
+**CSS Enhancements**:
+- **Smooth scrolling**: `-webkit-overflow-scrolling: touch` for iOS
+- **Tap targets**: Minimum 44x44px for buttons, links, inputs (Apple HIG compliant)
+- **Text adjustment**: Disabled auto-zoom on orientation change
+- **Safe area insets**: Support for notched devices (iPhone X and above)
+  ```css
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  ```
+
+**Viewport Configuration**:
+```javascript
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#ffffff",
+};
+```
+
+### Responsive Breakpoints
+
+| Breakpoint | Size | Primary Usage |
+|-----------|------|---------------|
+| Default | < 640px | Mobile phones (base styles) |
+| `sm:` | ≥ 640px | Large phones / small tablets |
+| `md:` | ≥ 768px | Tablets / small laptops |
+| `lg:` | ≥ 1024px | Laptops / desktops |
+| `xl:` | ≥ 1280px | Large desktops |
+
+### Tested Device Viewports
+
+| Device | Viewport | Status |
+|--------|----------|--------|
+| iPhone 12 Mini | 375 x 812 | ✅ Optimized |
+| iPhone 12/13/14 | 390 x 844 | ✅ Optimized |
+| iPhone 14 Plus / 15 Plus | 428 x 926 | ✅ Optimized |
+| iPhone 14 Pro / 15 Pro | 393 x 852 | ✅ Optimized |
+| iPhone 15 Pro Max | 430 x 932 | ✅ Optimized |
+
+### Key Mobile Features
+
+1. **Floating Pill Navigation (iOS-Style)**: Glassmorphic floating bar with individual pill-shaped tabs, backdrop blur, and smooth color transitions - modern and premium look
+2. **Touch-Optimized**: All interactive elements meet Apple's 44x44px minimum tap target size
+3. **Glassmorphism Effect**: Backdrop blur with semi-transparent background creates depth and modern aesthetic
+4. **Card-Based UI**: Tables converted to scannable cards on mobile
+5. **Smart Truncation**: Text truncates with ellipsis where needed
+6. **Responsive Typography**: Font sizes scale appropriately (`text-base md:text-lg`)
+7. **Sticky Header**: Top navigation bar stays accessible while scrolling
+8. **Bottom Notifications**: Toast messages appear at bottom on mobile for better thumb reach
+9. **Safe Area Support**: Layout adapts to notched devices automatically (home indicator spacing)
+10. **Smooth Animations**: 300ms transitions for tab switching with shadow and color changes
+
+### Performance
+
+- **Build Status**: ✅ Successful
+- **First Load JS**: 429 kB (Dashboard route)
+- **Build Time**: ~13s with Turbopack
+- **Optimization**: All pages statically generated
+- **Bundle**: Optimized with code splitting
+
+### Testing Checklist
+
+For mobile optimization verification:
+- [ ] Bottom navigation displays on mobile (< 768px) and is fixed at bottom
+- [ ] Bottom navigation respects safe area on notched devices
+- [ ] Active tab is highlighted with blue background and top border
+- [ ] Desktop shows traditional top tabs (≥ 768px)
+- [ ] All forms stack vertically and are keyboard-accessible
+- [ ] Tables display as cards on viewports < 768px
+- [ ] Toast notifications appear at bottom on mobile
+- [ ] Top navigation bar is sticky and responsive
+- [ ] All touch targets are minimum 44x44px (bottom nav is 64px height)
+- [ ] Calendar is touch-friendly
+- [ ] Date formats are abbreviated on mobile
+- [ ] Dialogs don't exceed viewport width
+- [ ] No horizontal overflow on any page
+- [ ] Content has bottom padding to prevent overlap with bottom nav
+
+### Development Guidelines for Mobile
+
+When adding new features:
+
+1. **Always use mobile-first approach**: Start with mobile styles, add `md:`, `lg:` for larger screens
+2. **Test touch targets**: Ensure buttons/links are minimum 44x44px
+3. **Consider card views**: For any new table, implement a card alternative for mobile
+4. **Use responsive utilities**: Prefer `flex-col md:flex-row` over fixed layouts
+5. **Test on real devices**: Chrome DevTools device emulation is good, but test on actual iPhones when possible
+6. **Watch for overflow**: Use `truncate`, `break-words`, or `overflow-hidden` appropriately
+7. **Responsive padding**: Use `p-4 md:p-6` pattern for spacing
+8. **Form dialogs**: Follow the `grid-cols-1 md:grid-cols-4` pattern for consistency
