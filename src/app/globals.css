@@ -41,6 +41,10 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --color-surface: var(--surface);
+  --color-surface-variant: var(--surface-variant);
+  --color-secondary-container: var(--secondary-container);
+  --color-on-secondary-container: var(--on-secondary-container);
 }
 
 :root {
@@ -76,6 +80,12 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
+
+  /* Material 3 tokens for bottom navigation */
+  --surface: oklch(0.99 0 0);
+  --surface-variant: oklch(0.95 0.004 286.32);
+  --secondary-container: oklch(0.88 0.05 250);
+  --on-secondary-container: oklch(0.25 0.05 250);
 }
 
 .dark {
@@ -118,5 +128,40 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Mobile-specific improvements */
+  @media (max-width: 768px) {
+    /* Smooth scrolling for mobile */
+    html {
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+
+    /* Better tap targets for mobile */
+    button, a, input, select, textarea {
+      min-height: 44px;
+    }
+
+    /* Disable text size adjustment on orientation change */
+    body {
+      -webkit-text-size-adjust: 100%;
+      -moz-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+  }
+
+  /* Safe area insets for notched devices (iPhone X and above) */
+  @supports (padding-top: env(safe-area-inset-top)) {
+    body {
+      padding-top: env(safe-area-inset-top);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+
+    /* Bottom navigation safe area */
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
   }
 }

@@ -17,19 +17,20 @@ export const metadata = {
   title: "Tuition Management System",
   description: "Manage students, classes, attendance, and invoices for tuition centers",
   manifest: "/manifest.json",
-  themeColor: "#2563eb",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "TMS",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#2563eb",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }) {
