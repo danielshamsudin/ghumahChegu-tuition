@@ -11,11 +11,15 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from './ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Clock, Users, Plus, BookOpen, UserPlus, Calendar as CalendarCheck, FileText, Settings } from 'lucide-react';
+import { Clock, Users, Plus, BookOpen, UserPlus, Calendar as CalendarCheck, FileText, Menu, X, ChevronRight } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { PullToRefreshContainer } from './PullToRefresh';
+import { BottomNav } from './BottomNav';
 
 export default function TeacherHomepage() {
   const { currentUser, userRole } = useAuth();
@@ -25,7 +29,7 @@ export default function TeacherHomepage() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState('success'); // 'success', 'warning', 'error'
+  const [messageType, setMessageType] = useState('success');
   const [showNotification, setShowNotification] = useState(false);
 
   // Subject management state
@@ -61,19 +65,34 @@ export default function TeacherHomepage() {
   const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
   const [invoices, setInvoices] = useState([]);
 
-  // Show notification with auto-dismiss
+  // Mobile state
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // Pull-to-refresh functionality
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchStudents(),
+      fetchSubjects(),
+      fetchSubjectAssignments(),
+      fetchInvoices(),
+      fetchAttendance(),
+    ]);
+  };
+
+  const { pullState, containerRef } = usePullToRefresh(handleRefresh, {
+    enabled: true,
+    threshold: 80,
+  });
+
   const showMessage = (msg, type = 'success') => {
     setMessage(msg);
     setMessageType(type);
     setShowNotification(true);
-    // Wait 1 second, then trigger slide out, then hide after animation completes
     setTimeout(() => {
-      // Trigger slide-out animation by adding a class or changing state
       const notification = document.querySelector('.toast-notification');
       if (notification) {
         notification.classList.add('slide-out');
       }
-      // Hide completely after slide-out animation (300ms)
       setTimeout(() => {
         setShowNotification(false);
       }, 300);
@@ -92,7 +111,6 @@ export default function TeacherHomepage() {
   useEffect(() => {
     filterTodaysClasses();
   }, [selectedDate, subjects, subjectAssignments, students]);
-
 
   useEffect(() => {
     fetchAttendance();
@@ -128,7 +146,6 @@ export default function TeacherHomepage() {
       const records = {};
       attendanceSnapshot.docs.forEach(d => {
         const data = d.data();
-        // Create unique key combining studentId and subjectId
         const key = data.subjectId ? `${data.studentId}_${data.subjectId}` : data.studentId;
         records[key] = { status: data.status, id: d.id };
       });
@@ -188,7 +205,6 @@ export default function TeacherHomepage() {
     }
   };
 
-  // Helper function to format date in local timezone as YYYY-MM-DD
   const formatDateLocal = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -200,19 +216,15 @@ export default function TeacherHomepage() {
     const selectedDateStr = formatDateLocal(selectedDate);
     const dayOfWeek = selectedDate.getDay();
 
-    // Build classes from subjects + assignments
     const classes = [];
 
     subjects.forEach(subject => {
-      // Check if subject is scheduled for selected date
       let isScheduled = false;
 
       if (subject.recurring === 'weekly') {
-        // Check for both old format (single dayOfWeek) and new format (daysOfWeek array)
         if (subject.daysOfWeek && Array.isArray(subject.daysOfWeek)) {
           isScheduled = subject.daysOfWeek.includes(dayOfWeek);
         } else if (subject.dayOfWeek !== undefined) {
-          // Backwards compatibility for old single-day format
           isScheduled = subject.dayOfWeek === dayOfWeek;
         }
       } else if (subject.recurring === 'none' && subject.date === selectedDateStr) {
@@ -220,7 +232,6 @@ export default function TeacherHomepage() {
       }
 
       if (isScheduled) {
-        // Get all students assigned to this subject
         const assignedStudents = subjectAssignments
           .filter(assignment => assignment.subjectId === subject.id)
           .map(assignment => {
@@ -239,14 +250,12 @@ export default function TeacherHomepage() {
     setTodaysClasses(classes);
   };
 
-  // Subject Management Handlers
   const handleAddSubject = async () => {
     if (!newSubject.name || !newSubject.startTime || !newSubject.endTime) {
       showMessage('Please fill in all required fields.', 'warning');
       return;
     }
 
-    // Validate recurring vs one-time
     if (newSubject.recurring === 'weekly' && newSubject.daysOfWeek.length === 0) {
       showMessage('Please select at least one day of week for weekly recurring subjects.', 'warning');
       return;
@@ -289,7 +298,6 @@ export default function TeacherHomepage() {
       return;
     }
 
-    // Validate days of week for weekly recurring subjects
     if (editingSubject.recurring === 'weekly') {
       const daysArray = editingSubject.daysOfWeek || [];
       if (daysArray.length === 0) {
@@ -306,7 +314,6 @@ export default function TeacherHomepage() {
         endTime: editingSubject.endTime,
       };
 
-      // Update days of week for weekly recurring subjects
       if (editingSubject.recurring === 'weekly' && editingSubject.daysOfWeek) {
         updateData.daysOfWeek = editingSubject.daysOfWeek.map(d => parseInt(d));
       }
@@ -325,7 +332,6 @@ export default function TeacherHomepage() {
     try {
       await deleteDoc(doc(db, 'subjects', subjectId));
 
-      // Also delete all assignments for this subject
       const assignmentsToDelete = subjectAssignments.filter(a => a.subjectId === subjectId);
       for (const assignment of assignmentsToDelete) {
         await deleteDoc(doc(db, 'subjectAssignments', assignment.id));
@@ -355,7 +361,6 @@ export default function TeacherHomepage() {
       const promises = [];
 
       for (const studentId of selectedStudentsForAssignment) {
-        // Check if assignment already exists
         const existingAssignment = subjectAssignments.find(
           a => a.subjectId === selectedSubjectForAssignment && a.studentId === studentId
         );
@@ -444,7 +449,6 @@ export default function TeacherHomepage() {
       .filter(s => s !== null);
   };
 
-  // Student Management Handlers
   const handleAddStudent = async () => {
     if (!newStudentName) {
       showMessage('Student name cannot be empty.', 'warning');
@@ -509,9 +513,7 @@ export default function TeacherHomepage() {
     }
   };
 
-  // Get classes for a specific date
   const getClassesForDate = (dateStr) => {
-    // Parse date string as local time to avoid timezone issues
     const [year, month, day] = dateStr.split('-').map(Number);
     const date = new Date(year, month - 1, day);
     const dayOfWeek = date.getDay();
@@ -530,7 +532,6 @@ export default function TeacherHomepage() {
     });
   };
 
-  // Get students for a specific subject
   const getStudentsForSubject = (subjectId) => {
     const assignedStudentIds = subjectAssignments
       .filter(a => a.subjectId === subjectId)
@@ -539,7 +540,6 @@ export default function TeacherHomepage() {
     return students.filter(s => assignedStudentIds.includes(s.id));
   };
 
-  // Attendance Handlers
   const handleMarkAttendance = async (studentId, status, subjectId) => {
     try {
       const attendanceQuery = query(collection(db, 'attendance'),
@@ -582,7 +582,6 @@ export default function TeacherHomepage() {
     }
   };
 
-  // Invoice Handlers
   const handleGenerateInvoice = async (studentId) => {
     const student = students.find(s => s.id === studentId);
     if (!student) {
@@ -591,7 +590,6 @@ export default function TeacherHomepage() {
     }
 
     try {
-      // Fetch attendance records for the student for the selected month
       const attendanceQuery = query(collection(db, 'attendance'),
         where('studentId', '==', student.id),
         where('teacherId', '==', currentUser.uid),
@@ -606,7 +604,6 @@ export default function TeacherHomepage() {
         return;
       }
 
-      // Group attendance by subject
       const attendanceBySubject = {};
       attendanceSnapshot.docs.forEach(d => {
         const data = d.data();
@@ -621,7 +618,6 @@ export default function TeacherHomepage() {
         attendanceBySubject[subjectId].count++;
       });
 
-      // Build invoice data with subject details
       const invoiceData = [];
       let grandTotal = 0;
       const hourlyRate = student.hourlyRate || 35;
@@ -640,10 +636,8 @@ export default function TeacherHomepage() {
         });
       }
 
-      // Generate PDF
       const pdf = new jsPDF();
 
-      // Header
       pdf.setFontSize(20);
       pdf.text('INVOICE', 105, 20, { align: 'center' });
 
@@ -652,7 +646,6 @@ export default function TeacherHomepage() {
       pdf.text(`Period: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
       pdf.text(`Date: ${new Date().toLocaleDateString()}`, 20, 49);
 
-      // Table
       const tableData = invoiceData.map(item => [
         item.subjectName,
         item.sessions,
@@ -675,20 +668,17 @@ export default function TeacherHomepage() {
         }
       });
 
-      // Grand Total
       const finalY = pdf.lastAutoTable?.finalY || 60;
       pdf.setFontSize(12);
       pdf.setFont(undefined, 'bold');
       pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
 
-      // Save PDF
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                          'July', 'August', 'September', 'October', 'November', 'December'];
       const monthName = monthNames[invoiceMonth - 1];
       const fileName = `${student.name.replace(/\s+/g, '_')}_${monthName}${invoiceYear}.pdf`;
       pdf.save(fileName);
 
-      // Save invoice record to Firestore
       const existingInvoiceQuery = query(collection(db, 'invoices'),
         where('studentId', '==', student.id),
         where('teacherId', '==', currentUser.uid),
@@ -739,41 +729,47 @@ export default function TeacherHomepage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div>Loading your dashboard...</div>
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Teacher Dashboard</h1>
+    <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
+      <div className="min-h-screen bg-gray-50 pb-20 sm:pb-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold">Teacher Dashboard</h1>
+        </div>
 
         {/* Toast Notification */}
         {showNotification && message && (
-          <div className="fixed top-4 right-4 z-50">
+          <div className="fixed top-20 right-4 left-4 sm:left-auto sm:right-4 z-50 max-w-sm">
             <div className={`toast-notification ${
               messageType === 'success' ? 'bg-green-600' :
               messageType === 'warning' ? 'bg-yellow-500' :
               messageType === 'error' ? 'bg-red-600' : 'bg-green-600'
-            } text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 transition-all duration-300 ease-in-out transform translate-x-0 opacity-100`}>
+            } text-white px-4 py-3 sm:px-6 rounded-lg shadow-lg flex items-center gap-2 transition-all duration-300 ease-in-out transform translate-x-0 opacity-100`}>
               {messageType === 'success' && (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               )}
               {messageType === 'warning' && (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               )}
               {messageType === 'error' && (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               )}
-              <span className="font-medium">{message}</span>
+              <span className="font-medium text-sm sm:text-base">{message}</span>
             </div>
           </div>
         )}
@@ -810,38 +806,44 @@ export default function TeacherHomepage() {
           }
         `}</style>
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="overview">
-              <Clock className="w-4 h-4 mr-2" />
-              Overview
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          {/* Mobile: Scrollable tabs, Desktop: Grid */}
+          <TabsList className="w-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 h-auto bg-transparent p-0">
+            <TabsTrigger value="overview" className="flex items-center justify-center gap-2 h-12 sm:h-10 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <Clock className="w-4 h-4" />
+              <span className="hidden sm:inline">Overview</span>
+              <span className="sm:hidden text-xs">Home</span>
             </TabsTrigger>
-            <TabsTrigger value="students">
-              <Users className="w-4 h-4 mr-2" />
-              Students
+            <TabsTrigger value="students" className="flex items-center justify-center gap-2 h-12 sm:h-10 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Students</span>
+              <span className="sm:hidden text-xs">Students</span>
             </TabsTrigger>
-            <TabsTrigger value="attendance">
-              <CalendarCheck className="w-4 h-4 mr-2" />
-              Attendance
+            <TabsTrigger value="attendance" className="flex items-center justify-center gap-2 h-12 sm:h-10 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <CalendarCheck className="w-4 h-4" />
+              <span className="hidden sm:inline">Attendance</span>
+              <span className="sm:hidden text-xs">Attend</span>
             </TabsTrigger>
-            <TabsTrigger value="invoices">
-              <FileText className="w-4 h-4 mr-2" />
-              Invoices
+            <TabsTrigger value="invoices" className="flex items-center justify-center gap-2 h-12 sm:h-10 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">Invoices</span>
+              <span className="sm:hidden text-xs">Invoice</span>
             </TabsTrigger>
-            <TabsTrigger value="classes">
-              <BookOpen className="w-4 h-4 mr-2" />
-              Classes
+            <TabsTrigger value="classes" className="flex items-center justify-center gap-2 h-12 sm:h-10 col-span-2 sm:col-span-1 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <BookOpen className="w-4 h-4" />
+              <span className="hidden sm:inline">Classes</span>
+              <span className="sm:hidden text-xs">Classes</span>
             </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Calendar Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+              {/* Calendar Section - Full width on mobile */}
               <div className="lg:col-span-1">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Class Schedule</CardTitle>
+                    <CardTitle className="text-lg sm:text-xl">Class Schedule</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <Calendar
@@ -858,7 +860,7 @@ export default function TeacherHomepage() {
                           fontWeight: 'bold'
                         }
                       }}
-                      className="rounded-md border"
+                      className="rounded-md border w-full"
                     />
                     <div className="mt-4 text-sm text-gray-600">
                       <div className="flex items-center gap-2">
@@ -873,49 +875,59 @@ export default function TeacherHomepage() {
               {/* Today's Classes Section */}
               <div className="lg:col-span-2">
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle>
-                      Classes for {(selectedDate || new Date()).toLocaleDateString('en-US', {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })}
+                  <CardHeader>
+                    <CardTitle className="text-base sm:text-lg">
+                      <span className="hidden sm:inline">
+                        Classes for {(selectedDate || new Date()).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </span>
+                      <span className="sm:hidden">
+                        {(selectedDate || new Date()).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {todaysClasses.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
                         <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>No classes scheduled for this day</p>
+                        <p className="text-sm sm:text-base">No classes scheduled for this day</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-3 sm:space-y-4">
                         {todaysClasses.map((classItem) => (
                           <Card key={classItem.id} className="border-l-4 border-l-blue-500">
-                            <CardContent className="pt-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-2">
-                                    <h3 className="font-semibold text-lg">{classItem.name}</h3>
-                                    {classItem.recurring === 'weekly' && (
-                                      <Badge variant="secondary">Weekly</Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                                    <div className="flex items-center gap-1">
-                                      <Clock className="w-4 h-4" />
-                                      <span>
-                                        {formatTime(classItem.startTime)} - {formatTime(classItem.endTime)}
-                                      </span>
+                            <CardContent className="pt-4 p-3 sm:p-4">
+                              <div className="space-y-2">
+                                <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                                      <h3 className="font-semibold text-base sm:text-lg">{classItem.name}</h3>
+                                      {classItem.recurring === 'weekly' && (
+                                        <Badge variant="secondary" className="text-xs">Weekly</Badge>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                      <Users className="w-4 h-4" />
-                                      <span>
-                                        {classItem.students.length > 0
-                                          ? classItem.students.join(', ')
-                                          : 'No students assigned'}
-                                      </span>
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-600">
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="w-4 h-4 flex-shrink-0" />
+                                        <span className="text-xs sm:text-sm">
+                                          {formatTime(classItem.startTime)} - {formatTime(classItem.endTime)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-start gap-1">
+                                        <Users className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                        <span className="text-xs sm:text-sm break-all">
+                                          {classItem.students.length > 0
+                                            ? classItem.students.join(', ')
+                                            : 'No students assigned'}
+                                        </span>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -928,37 +940,43 @@ export default function TeacherHomepage() {
                   </CardContent>
                 </Card>
 
-                {/* Quick Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                {/* Quick Stats - Stacked on mobile */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-4 sm:mt-6">
                   <Card>
-                    <CardContent className="pt-6">
+                    <CardContent className="pt-4 sm:pt-6 p-4">
                       <div className="flex items-center">
-                        <Users className="w-8 h-8 text-blue-500" />
-                        <div className="ml-4">
-                          <p className="text-sm font-medium text-gray-600">Total Students</p>
-                          <p className="text-2xl font-bold">{students.length}</p>
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <Users className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500" />
+                        </div>
+                        <div className="ml-3 sm:ml-4">
+                          <p className="text-xs sm:text-sm font-medium text-gray-600">Total Students</p>
+                          <p className="text-xl sm:text-2xl font-bold">{students.length}</p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                   <Card>
-                    <CardContent className="pt-6">
+                    <CardContent className="pt-4 sm:pt-6 p-4">
                       <div className="flex items-center">
-                        <Clock className="w-8 h-8 text-green-500" />
-                        <div className="ml-4">
-                          <p className="text-sm font-medium text-gray-600">Today's Classes</p>
-                          <p className="text-2xl font-bold">{todaysClasses.length}</p>
+                        <div className="p-2 bg-green-100 rounded-lg">
+                          <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-green-500" />
+                        </div>
+                        <div className="ml-3 sm:ml-4">
+                          <p className="text-xs sm:text-sm font-medium text-gray-600">Today's Classes</p>
+                          <p className="text-xl sm:text-2xl font-bold">{todaysClasses.length}</p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                   <Card>
-                    <CardContent className="pt-6">
+                    <CardContent className="pt-4 sm:pt-6 p-4">
                       <div className="flex items-center">
-                        <BookOpen className="w-8 h-8 text-purple-500" />
-                        <div className="ml-4">
-                          <p className="text-sm font-medium text-gray-600">Total Subjects</p>
-                          <p className="text-2xl font-bold">{subjects.length}</p>
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <BookOpen className="w-6 h-6 sm:w-8 sm:h-8 text-purple-500" />
+                        </div>
+                        <div className="ml-3 sm:ml-4">
+                          <p className="text-xs sm:text-sm font-medium text-gray-600">Total Subjects</p>
+                          <p className="text-xl sm:text-2xl font-bold">{subjects.length}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -968,34 +986,34 @@ export default function TeacherHomepage() {
             </div>
           </TabsContent>
 
-          {/* Students Tab */}
+          {/* Students Tab - Mobile optimized */}
           <TabsContent value="students" className="space-y-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle>Student Management</CardTitle>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0 pb-4">
+                <CardTitle className="text-lg sm:text-xl">Student Management</CardTitle>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button size="sm" className="w-full sm:w-auto">
                       <UserPlus className="w-4 h-4 mr-2" />
                       Add Student
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="w-[95vw] max-w-md">
                     <DialogHeader>
                       <DialogTitle>Add New Student</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="newStudentName" className="text-right">Name</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="newStudentName">Name</Label>
                         <Input
                           id="newStudentName"
                           value={newStudentName}
                           onChange={(e) => setNewStudentName(e.target.value)}
-                          className="col-span-3"
+                          className="h-12"
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="newStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="newStudentHourlyRate">Hourly Rate (RM)</Label>
                         <Input
                           id="newStudentHourlyRate"
                           type="number"
@@ -1003,102 +1021,171 @@ export default function TeacherHomepage() {
                           step="0.01"
                           value={newStudentHourlyRate}
                           onChange={(e) => setNewStudentHourlyRate(e.target.value)}
-                          className="col-span-3"
+                          className="h-12"
                         />
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button type="submit" onClick={handleAddStudent}>Add Student</Button>
+                      <Button type="submit" onClick={handleAddStudent} className="w-full sm:w-auto h-12">
+                        Add Student
+                      </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
                 {students.length === 0 ? (
-                  <p className="text-center py-8 text-gray-500">No students added yet.</p>
-                ) : (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Hourly Rate</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {students.map(student => (
-                          <TableRow key={student.id}>
-                            <TableCell className="font-medium">{student.name}</TableCell>
-                            <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)}>
-                                      Edit
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Edit Student</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="grid gap-4 py-4">
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="editStudentName" className="text-right">Name</Label>
-                                        <Input
-                                          id="editStudentName"
-                                          value={editingStudent?.name || ''}
-                                          onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
-                                          className="col-span-3"
-                                        />
-                                      </div>
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
-                                        <Input
-                                          id="editStudentHourlyRate"
-                                          type="number"
-                                          min="0"
-                                          step="0.01"
-                                          value={editingStudent?.hourlyRate || ''}
-                                          onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
-                                          className="col-span-3"
-                                        />
-                                      </div>
-                                    </div>
-                                    <DialogFooter>
-                                      <Button type="submit" onClick={handleUpdateStudent}>Save Changes</Button>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
-                                <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)}>
-                                  Delete
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="text-center py-8 text-gray-500">
+                    <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-sm sm:text-base">No students added yet.</p>
                   </div>
+                ) : (
+                  <>
+                    {/* Mobile: Card layout, Desktop: Table */}
+                    <div className="block sm:hidden space-y-3">
+                      {students.map(student => (
+                        <Card key={student.id} className="border">
+                          <CardContent className="p-4">
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-base">{student.name}</h3>
+                                <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)} className="flex-1">
+                                    Edit
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="w-[95vw] max-w-md">
+                                  <DialogHeader>
+                                    <DialogTitle>Edit Student</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="grid gap-4 py-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="editStudentName">Name</Label>
+                                      <Input
+                                        id="editStudentName"
+                                        value={editingStudent?.name || ''}
+                                        onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                                        className="h-12"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="editStudentHourlyRate">Hourly Rate (RM)</Label>
+                                      <Input
+                                        id="editStudentHourlyRate"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={editingStudent?.hourlyRate || ''}
+                                        onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
+                                        className="h-12"
+                                      />
+                                    </div>
+                                  </div>
+                                  <DialogFooter>
+                                    <Button type="submit" onClick={handleUpdateStudent} className="w-full sm:w-auto h-12">
+                                      Save Changes
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                              <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)} className="flex-1">
+                                Delete
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    {/* Desktop: Table */}
+                    <div className="hidden sm:block rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Hourly Rate</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {students.map(student => (
+                            <TableRow key={student.id}>
+                              <TableCell className="font-medium">{student.name}</TableCell>
+                              <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Dialog>
+                                    <DialogTrigger asChild>
+                                      <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)}>
+                                        Edit
+                                      </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                      <DialogHeader>
+                                        <DialogTitle>Edit Student</DialogTitle>
+                                      </DialogHeader>
+                                      <div className="grid gap-4 py-4">
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                          <Label htmlFor="editStudentName" className="text-right">Name</Label>
+                                          <Input
+                                            id="editStudentName"
+                                            value={editingStudent?.name || ''}
+                                            onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                                            className="col-span-3"
+                                          />
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                          <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
+                                          <Input
+                                            id="editStudentHourlyRate"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={editingStudent?.hourlyRate || ''}
+                                            onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
+                                            className="col-span-3"
+                                          />
+                                        </div>
+                                      </div>
+                                      <DialogFooter>
+                                        <Button type="submit" onClick={handleUpdateStudent}>Save Changes</Button>
+                                      </DialogFooter>
+                                    </DialogContent>
+                                  </Dialog>
+                                  <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)}>
+                                    Delete
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Attendance Tab */}
+          {/* Attendance Tab - Mobile optimized */}
           <TabsContent value="attendance" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Mark Attendance</CardTitle>
-                <div className="flex items-center gap-4">
-                  <Label htmlFor="attendanceDate">Select Date:</Label>
+                <CardTitle className="text-lg sm:text-xl">Mark Attendance</CardTitle>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-4">
+                  <Label htmlFor="attendanceDate" className="text-sm font-medium">Select Date:</Label>
                   <Input
                     id="attendanceDate"
                     type="date"
                     value={attendanceDate}
                     onChange={(e) => setAttendanceDate(e.target.value)}
-                    className="w-auto"
+                    className="w-full sm:w-auto h-12"
                   />
                 </div>
               </CardHeader>
@@ -1110,13 +1197,13 @@ export default function TeacherHomepage() {
                     return (
                       <div className="text-center py-8 text-gray-500">
                         <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>No classes scheduled for this date</p>
+                        <p className="text-sm sm:text-base">No classes scheduled for this date</p>
                       </div>
                     );
                   }
 
                   return (
-                    <div className="space-y-6">
+                    <div className="space-y-4 sm:space-y-6">
                       {classesForDate.map(subject => {
                         const studentsInClass = getStudentsForSubject(subject.id);
 
@@ -1125,17 +1212,62 @@ export default function TeacherHomepage() {
                         }
 
                         return (
-                          <div key={subject.id} className="border rounded-lg p-4">
+                          <div key={subject.id} className="border rounded-lg p-3 sm:p-4">
                             <div className="flex items-center gap-3 mb-4">
-                              <BookOpen className="w-5 h-5 text-blue-500" />
-                              <div>
-                                <h3 className="font-semibold text-lg">{subject.name}</h3>
-                                <p className="text-sm text-gray-600">
+                              <div className="p-2 bg-blue-100 rounded-lg">
+                                <BookOpen className="w-5 h-5 text-blue-500" />
+                              </div>
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-base sm:text-lg">{subject.name}</h3>
+                                <p className="text-xs sm:text-sm text-gray-600">
                                   {formatTime(subject.startTime)} - {formatTime(subject.endTime)}
                                 </p>
                               </div>
                             </div>
-                            <div className="rounded-md border">
+
+                            {/* Mobile: Card layout */}
+                            <div className="block sm:hidden space-y-3">
+                              {studentsInClass.map(student => {
+                                const attendanceKey = `${student.id}_${subject.id}`;
+                                const status = attendanceRecords[attendanceKey]?.status;
+
+                                return (
+                                  <Card key={student.id} className="border">
+                                    <CardContent className="p-4">
+                                      <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                          <h4 className="font-medium text-base">{student.name}</h4>
+                                          <p className="text-sm text-gray-600 capitalize mt-1">
+                                            {status || 'Not marked'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          size="sm"
+                                          variant={status === 'present' ? 'default' : 'outline'}
+                                          onClick={() => handleMarkAttendance(student.id, 'present', subject.id)}
+                                          className="flex-1 h-12"
+                                        >
+                                          Present
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant={status === 'absent' ? 'destructive' : 'outline'}
+                                          onClick={() => handleMarkAttendance(student.id, 'absent', subject.id)}
+                                          className="flex-1 h-12"
+                                        >
+                                          Absent
+                                        </Button>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                );
+                              })}
+                            </div>
+
+                            {/* Desktop: Table */}
+                            <div className="hidden sm:block rounded-md border overflow-x-auto">
                               <Table>
                                 <TableHeader>
                                   <TableRow>
@@ -1147,9 +1279,6 @@ export default function TeacherHomepage() {
                                 <TableBody>
                                   {studentsInClass.map(student => {
                                     const attendanceKey = `${student.id}_${subject.id}`;
-                                    const attendanceRecord = Object.values(attendanceRecords).find(
-                                      record => attendanceRecords[attendanceKey]
-                                    );
                                     const status = attendanceRecords[attendanceKey]?.status;
 
                                     return (
@@ -1192,14 +1321,14 @@ export default function TeacherHomepage() {
             </Card>
           </TabsContent>
 
-          {/* Invoices Tab */}
+          {/* Invoices Tab - Mobile optimized */}
           <TabsContent value="invoices" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Invoice Management</CardTitle>
-                <div className="flex items-center space-x-4">
-                  <div>
-                    <Label htmlFor="invoiceMonth" className="mr-2">Month:</Label>
+                <CardTitle className="text-lg sm:text-xl">Invoice Management</CardTitle>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mt-4">
+                  <div className="w-full sm:w-auto">
+                    <Label htmlFor="invoiceMonth" className="text-sm mb-2 block">Month:</Label>
                     <Input
                       type="number"
                       id="invoiceMonth"
@@ -1207,11 +1336,11 @@ export default function TeacherHomepage() {
                       onChange={(e) => setInvoiceMonth(parseInt(e.target.value))}
                       min="1"
                       max="12"
-                      className="w-20 inline-block"
+                      className="w-full sm:w-24 h-12"
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="invoiceYear" className="mr-2">Year:</Label>
+                  <div className="w-full sm:w-auto">
+                    <Label htmlFor="invoiceYear" className="text-sm mb-2 block">Year:</Label>
                     <Input
                       type="number"
                       id="invoiceYear"
@@ -1219,7 +1348,7 @@ export default function TeacherHomepage() {
                       onChange={(e) => setInvoiceYear(parseInt(e.target.value))}
                       min="2000"
                       max="2100"
-                      className="w-24 inline-block"
+                      className="w-full sm:w-28 h-12"
                     />
                   </div>
                 </div>
@@ -1228,76 +1357,140 @@ export default function TeacherHomepage() {
                 <div className="space-y-6">
                   {/* Students with Generate Invoice buttons */}
                   <div>
-                    <h3 className="text-lg font-semibold mb-4">Generate Invoices</h3>
+                    <h3 className="text-base sm:text-lg font-semibold mb-4">Generate Invoices</h3>
                     {students.length === 0 ? (
-                      <p className="text-center py-8 text-gray-500">No students available.</p>
-                    ) : (
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Student Name</TableHead>
-                              <TableHead>Hourly Rate</TableHead>
-                              <TableHead>Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {students.map(student => (
-                              <TableRow key={student.id}>
-                                <TableCell className="font-medium">{student.name}</TableCell>
-                                <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                                <TableCell>
-                                  <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>
-                                    Generate Invoice
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                      <div className="text-center py-8 text-gray-500">
+                        <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-sm sm:text-base">No students available.</p>
                       </div>
+                    ) : (
+                      <>
+                        {/* Mobile: Card layout */}
+                        <div className="block sm:hidden space-y-3">
+                          {students.map(student => (
+                            <Card key={student.id} className="border">
+                              <CardContent className="p-4">
+                                <div className="flex justify-between items-start mb-3">
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-base">{student.name}</h4>
+                                    <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
+                                  </div>
+                                </div>
+                                <Button size="sm" onClick={() => handleGenerateInvoice(student.id)} className="w-full h-12">
+                                  <FileText className="w-4 h-4 mr-2" />
+                                  Generate Invoice
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+
+                        {/* Desktop: Table */}
+                        <div className="hidden sm:block rounded-md border overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Student Name</TableHead>
+                                <TableHead>Hourly Rate</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {students.map(student => (
+                                <TableRow key={student.id}>
+                                  <TableCell className="font-medium">{student.name}</TableCell>
+                                  <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                                  <TableCell>
+                                    <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>
+                                      Generate Invoice
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </>
                     )}
                   </div>
 
                   {/* Generated Invoices */}
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold">Generated Invoices</h3>
-                      <Button onClick={fetchInvoices}>Refresh Invoices</Button>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                      <h3 className="text-base sm:text-lg font-semibold">Generated Invoices</h3>
+                      <Button onClick={fetchInvoices} size="sm" className="w-full sm:w-auto">
+                        Refresh Invoices
+                      </Button>
                     </div>
                     {invoices.length === 0 ? (
-                      <p className="text-center py-8 text-gray-500">No invoices found.</p>
-                    ) : (
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Student Name</TableHead>
-                              <TableHead>Month</TableHead>
-                              <TableHead>Year</TableHead>
-                              <TableHead>Amount</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {invoices.map(invoice => (
-                              <TableRow key={invoice.id}>
-                                <TableCell>{getStudentName(invoice.studentId)}</TableCell>
-                                <TableCell>{invoice.month}</TableCell>
-                                <TableCell>{invoice.year}</TableCell>
-                                <TableCell>RM{invoice.amount}</TableCell>
-                                <TableCell className="capitalize">{invoice.status}</TableCell>
-                                <TableCell>
-                                  <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)}>
-                                    Delete
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                      <div className="text-center py-8 text-gray-500">
+                        <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-sm sm:text-base">No invoices found.</p>
                       </div>
+                    ) : (
+                      <>
+                        {/* Mobile: Card layout */}
+                        <div className="block sm:hidden space-y-3">
+                          {invoices.map(invoice => (
+                            <Card key={invoice.id} className="border">
+                              <CardContent className="p-4">
+                                <div className="space-y-2 mb-3">
+                                  <h4 className="font-semibold text-base">{getStudentName(invoice.studentId)}</h4>
+                                  <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <div>
+                                      <span className="text-gray-600">Period:</span>
+                                      <p className="font-medium">{invoice.month}/{invoice.year}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600">Amount:</span>
+                                      <p className="font-medium">RM{invoice.amount}</p>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-600 text-sm">Status:</span>
+                                    <p className="font-medium capitalize text-sm">{invoice.status}</p>
+                                  </div>
+                                </div>
+                                <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)} className="w-full h-12">
+                                  Delete
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+
+                        {/* Desktop: Table */}
+                        <div className="hidden sm:block rounded-md border overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Student Name</TableHead>
+                                <TableHead>Month</TableHead>
+                                <TableHead>Year</TableHead>
+                                <TableHead>Amount</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {invoices.map(invoice => (
+                                <TableRow key={invoice.id}>
+                                  <TableCell>{getStudentName(invoice.studentId)}</TableCell>
+                                  <TableCell>{invoice.month}</TableCell>
+                                  <TableCell>{invoice.year}</TableCell>
+                                  <TableCell>RM{invoice.amount}</TableCell>
+                                  <TableCell className="capitalize">{invoice.status}</TableCell>
+                                  <TableCell>
+                                    <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)}>
+                                      Delete
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -1305,70 +1498,72 @@ export default function TeacherHomepage() {
             </Card>
           </TabsContent>
 
-          {/* Classes Tab */}
+          {/* Classes Tab - Continue in next message due to length... */}
           <TabsContent value="classes" className="space-y-4">
             {/* Subject Management Section */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle>Subject Management</CardTitle>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0 pb-4">
+                <CardTitle className="text-lg sm:text-xl">Subject Management</CardTitle>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button size="sm" className="w-full sm:w-auto">
                       <Plus className="w-4 h-4 mr-2" />
                       Add Subject
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Add New Subject</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="subjectName" className="text-right">Subject Name</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="subjectName">Subject Name</Label>
                         <Input
                           id="subjectName"
                           value={newSubject.name}
                           onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
                           placeholder="e.g., Mathematics"
-                          className="col-span-3"
+                          className="h-12"
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="subjectStartTime" className="text-right">Start Time</Label>
-                        <Input
-                          id="subjectStartTime"
-                          type="time"
-                          value={newSubject.startTime}
-                          onChange={(e) => setNewSubject({ ...newSubject, startTime: e.target.value })}
-                          className="col-span-3"
-                        />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="subjectStartTime">Start Time</Label>
+                          <Input
+                            id="subjectStartTime"
+                            type="time"
+                            value={newSubject.startTime}
+                            onChange={(e) => setNewSubject({ ...newSubject, startTime: e.target.value })}
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="subjectEndTime">End Time</Label>
+                          <Input
+                            id="subjectEndTime"
+                            type="time"
+                            value={newSubject.endTime}
+                            onChange={(e) => setNewSubject({ ...newSubject, endTime: e.target.value })}
+                            className="h-12"
+                          />
+                        </div>
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="subjectEndTime" className="text-right">End Time</Label>
-                        <Input
-                          id="subjectEndTime"
-                          type="time"
-                          value={newSubject.endTime}
-                          onChange={(e) => setNewSubject({ ...newSubject, endTime: e.target.value })}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="subjectRecurring" className="text-right">Schedule Type</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="subjectRecurring">Schedule Type</Label>
                         <select
                           id="subjectRecurring"
                           value={newSubject.recurring}
                           onChange={(e) => setNewSubject({ ...newSubject, recurring: e.target.value })}
-                          className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                          className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                         >
                           <option value="none">One-time only</option>
                           <option value="weekly">Weekly Recurring</option>
                         </select>
                       </div>
                       {newSubject.recurring === 'weekly' && (
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right">Days of Week</Label>
-                          <div className="col-span-3 space-y-2 border rounded-md p-3">
+                        <div className="space-y-2">
+                          <Label>Days of Week</Label>
+                          <div className="border rounded-md p-3 space-y-2">
                             {[
                               { value: 0, label: 'Sunday' },
                               { value: 1, label: 'Monday' },
@@ -1378,7 +1573,7 @@ export default function TeacherHomepage() {
                               { value: 5, label: 'Friday' },
                               { value: 6, label: 'Saturday' }
                             ].map((day) => (
-                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
                                 <input
                                   type="checkbox"
                                   checked={newSubject.daysOfWeek.includes(day.value.toString())}
@@ -1395,7 +1590,7 @@ export default function TeacherHomepage() {
                                       });
                                     }
                                   }}
-                                  className="w-4 h-4"
+                                  className="w-5 h-5"
                                 />
                                 <span className="text-sm">{day.label}</span>
                               </label>
@@ -1404,113 +1599,121 @@ export default function TeacherHomepage() {
                         </div>
                       )}
                       {newSubject.recurring === 'none' && (
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="subjectDate" className="text-right">Date</Label>
+                        <div className="space-y-2">
+                          <Label htmlFor="subjectDate">Date</Label>
                           <Input
                             id="subjectDate"
                             type="date"
                             value={newSubject.date}
                             onChange={(e) => setNewSubject({ ...newSubject, date: e.target.value })}
-                            className="col-span-3"
+                            className="h-12"
                           />
                         </div>
                       )}
                     </div>
                     <DialogFooter>
-                      <Button type="submit" onClick={handleAddSubject}>Add Subject</Button>
+                      <Button type="submit" onClick={handleAddSubject} className="w-full sm:w-auto h-12">
+                        Add Subject
+                      </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
                 {subjects.length === 0 ? (
-                  <p className="text-center py-8 text-gray-500">No subjects created yet.</p>
+                  <div className="text-center py-8 text-gray-500">
+                    <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-sm sm:text-base">No subjects created yet.</p>
+                  </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3 sm:space-y-4">
                     {subjects.map((subject) => (
                       <Card key={subject.id} className="border-l-4 border-l-blue-500">
-                        <CardContent className="pt-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="font-semibold text-lg">{subject.name}</h3>
+                        <CardContent className="pt-4 p-3 sm:p-4">
+                          <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+                            <div className="flex-1 w-full">
+                              <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                                <h3 className="font-semibold text-base sm:text-lg">{subject.name}</h3>
                                 {subject.recurring === 'weekly' && (
-                                  <Badge variant="secondary">
+                                  <Badge variant="secondary" className="text-xs">
                                     Weekly - {subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
                                       ? formatDaysOfWeek(subject.daysOfWeek)
                                       : getDayName(subject.dayOfWeek)}
                                   </Badge>
                                 )}
                                 {subject.recurring === 'none' && subject.date && (
-                                  <Badge variant="outline">{subject.date}</Badge>
+                                  <Badge variant="outline" className="text-xs">{subject.date}</Badge>
                                 )}
                               </div>
-                              <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
+                              <div className="flex items-center gap-1 sm:gap-4 text-sm text-gray-600 mb-2 flex-wrap">
                                 <div className="flex items-center gap-1">
-                                  <Clock className="w-4 h-4" />
-                                  <span>
+                                  <Clock className="w-4 h-4 flex-shrink-0" />
+                                  <span className="text-xs sm:text-sm">
                                     {formatTime(subject.startTime)} - {formatTime(subject.endTime)}
                                   </span>
                                 </div>
                               </div>
-                              <div className="text-sm text-gray-600">
+                              <div className="text-xs sm:text-sm text-gray-600">
                                 <span className="font-medium">Assigned Students: </span>
                                 {getAssignedStudentsForSubject(subject.id).length > 0 ? (
-                                  <span>{getAssignedStudentsForSubject(subject.id).map(s => s.name).join(', ')}</span>
+                                  <span className="break-all">{getAssignedStudentsForSubject(subject.id).map(s => s.name).join(', ')}</span>
                                 ) : (
                                   <span className="text-gray-400">No students assigned</span>
                                 )}
                               </div>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 w-full sm:w-auto">
                               <Dialog>
                                 <DialogTrigger asChild>
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setEditingSubject(subject)}
+                                    className="flex-1 sm:flex-none"
                                   >
                                     Edit
                                   </Button>
                                 </DialogTrigger>
-                                <DialogContent>
+                                <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto">
                                   <DialogHeader>
                                     <DialogTitle>Edit Subject</DialogTitle>
                                   </DialogHeader>
                                   <div className="grid gap-4 py-4">
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                      <Label htmlFor="editSubjectName" className="text-right">Subject Name</Label>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="editSubjectName">Subject Name</Label>
                                       <Input
                                         id="editSubjectName"
                                         value={editingSubject?.name || ''}
                                         onChange={(e) => setEditingSubject({ ...editingSubject, name: e.target.value })}
-                                        className="col-span-3"
+                                        className="h-12"
                                       />
                                     </div>
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                      <Label htmlFor="editSubjectStartTime" className="text-right">Start Time</Label>
-                                      <Input
-                                        id="editSubjectStartTime"
-                                        type="time"
-                                        value={editingSubject?.startTime || ''}
-                                        onChange={(e) => setEditingSubject({ ...editingSubject, startTime: e.target.value })}
-                                        className="col-span-3"
-                                      />
-                                    </div>
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                      <Label htmlFor="editSubjectEndTime" className="text-right">End Time</Label>
-                                      <Input
-                                        id="editSubjectEndTime"
-                                        type="time"
-                                        value={editingSubject?.endTime || ''}
-                                        onChange={(e) => setEditingSubject({ ...editingSubject, endTime: e.target.value })}
-                                        className="col-span-3"
-                                      />
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="editSubjectStartTime">Start Time</Label>
+                                        <Input
+                                          id="editSubjectStartTime"
+                                          type="time"
+                                          value={editingSubject?.startTime || ''}
+                                          onChange={(e) => setEditingSubject({ ...editingSubject, startTime: e.target.value })}
+                                          className="h-12"
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="editSubjectEndTime">End Time</Label>
+                                        <Input
+                                          id="editSubjectEndTime"
+                                          type="time"
+                                          value={editingSubject?.endTime || ''}
+                                          onChange={(e) => setEditingSubject({ ...editingSubject, endTime: e.target.value })}
+                                          className="h-12"
+                                        />
+                                      </div>
                                     </div>
                                     {editingSubject?.recurring === 'weekly' && (
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label className="text-right">Days of Week</Label>
-                                        <div className="col-span-3 space-y-2 border rounded-md p-3">
+                                      <div className="space-y-2">
+                                        <Label>Days of Week</Label>
+                                        <div className="border rounded-md p-3 space-y-2">
                                           {[
                                             { value: 0, label: 'Sunday' },
                                             { value: 1, label: 'Monday' },
@@ -1523,7 +1726,7 @@ export default function TeacherHomepage() {
                                             const daysArray = editingSubject?.daysOfWeek || (editingSubject?.dayOfWeek !== undefined ? [editingSubject.dayOfWeek] : []);
                                             const daysAsStrings = daysArray.map(d => String(d));
                                             return (
-                                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                                              <label key={day.value} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
                                                 <input
                                                   type="checkbox"
                                                   checked={daysAsStrings.includes(String(day.value))}
@@ -1539,7 +1742,7 @@ export default function TeacherHomepage() {
                                                       daysOfWeek: newDays
                                                     });
                                                   }}
-                                                  className="w-4 h-4"
+                                                  className="w-5 h-5"
                                                 />
                                                 <span className="text-sm">{day.label}</span>
                                               </label>
@@ -1550,7 +1753,9 @@ export default function TeacherHomepage() {
                                     )}
                                   </div>
                                   <DialogFooter>
-                                    <Button type="submit" onClick={handleUpdateSubject}>Save Changes</Button>
+                                    <Button type="submit" onClick={handleUpdateSubject} className="w-full sm:w-auto h-12">
+                                      Save Changes
+                                    </Button>
                                   </DialogFooter>
                                 </DialogContent>
                               </Dialog>
@@ -1558,7 +1763,7 @@ export default function TeacherHomepage() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleDeleteSubject(subject.id)}
-                                className="text-red-600 hover:text-red-700"
+                                className="text-red-600 hover:text-red-700 flex-1 sm:flex-none"
                               >
                                 Delete
                               </Button>
@@ -1575,18 +1780,18 @@ export default function TeacherHomepage() {
             {/* Student Assignment Section */}
             <Card>
               <CardHeader>
-                <CardTitle>Assign Students to Subjects</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Assign Students to Subjects</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="grid gap-4">
-                    <div>
+                    <div className="space-y-2">
                       <Label htmlFor="assignSubject">Select Subject</Label>
                       <select
                         id="assignSubject"
                         value={selectedSubjectForAssignment}
                         onChange={(e) => setSelectedSubjectForAssignment(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                        className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                       >
                         <option value="">Select a subject</option>
                         {subjects.map(subject => (
@@ -1601,13 +1806,13 @@ export default function TeacherHomepage() {
                       </select>
                     </div>
 
-                    <div>
+                    <div className="space-y-2">
                       <Label>Search and Select Students</Label>
                       <Input
                         placeholder="Type to search students..."
                         value={studentSearchQuery}
                         onChange={(e) => setStudentSearchQuery(e.target.value)}
-                        className="mb-3"
+                        className="h-12 mb-3"
                       />
                       <div className="border rounded-md p-3 max-h-[240px] overflow-y-auto">
                         {students.filter(student =>
@@ -1621,7 +1826,7 @@ export default function TeacherHomepage() {
                                 student.name.toLowerCase().includes(studentSearchQuery.toLowerCase())
                               )
                               .map(student => (
-                                <label key={student.id} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                                <label key={student.id} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-3 rounded">
                                   <input
                                     type="checkbox"
                                     checked={selectedStudentsForAssignment.includes(student.id)}
@@ -1634,7 +1839,7 @@ export default function TeacherHomepage() {
                                         );
                                       }
                                     }}
-                                    className="w-4 h-4"
+                                    className="w-5 h-5"
                                   />
                                   <span className="text-sm">{student.name}</span>
                                 </label>
@@ -1649,46 +1854,75 @@ export default function TeacherHomepage() {
                       )}
                     </div>
 
-                    <Button onClick={handleAssignStudentsToSubject}>Assign Students to Subject</Button>
+                    <Button onClick={handleAssignStudentsToSubject} className="h-12">
+                      Assign Students to Subject
+                    </Button>
                   </div>
 
                   {/* Current Assignments */}
                   {selectedSubjectForAssignment && (
                     <div className="mt-6">
-                      <h3 className="text-lg font-semibold mb-4">
+                      <h3 className="text-base sm:text-lg font-semibold mb-4">
                         Current Assignments for {subjects.find(s => s.id === selectedSubjectForAssignment)?.name}
                       </h3>
                       {getAssignedStudentsForSubject(selectedSubjectForAssignment).length === 0 ? (
                         <p className="text-gray-500 text-sm">No students assigned yet.</p>
                       ) : (
-                        <div className="rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Student Name</TableHead>
-                                <TableHead>Hourly Rate</TableHead>
-                                <TableHead>Actions</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {getAssignedStudentsForSubject(selectedSubjectForAssignment).map(student => (
-                                <TableRow key={student.assignmentId}>
-                                  <TableCell className="font-medium">{student.name}</TableCell>
-                                  <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                                  <TableCell>
-                                    <Button
-                                      variant="destructive"
-                                      size="sm"
-                                      onClick={() => handleRemoveStudentFromSubject(student.assignmentId)}
-                                    >
-                                      Remove
-                                    </Button>
-                                  </TableCell>
+                        <>
+                          {/* Mobile: Card layout */}
+                          <div className="block sm:hidden space-y-3">
+                            {getAssignedStudentsForSubject(selectedSubjectForAssignment).map(student => (
+                              <Card key={student.assignmentId} className="border">
+                                <CardContent className="p-4">
+                                  <div className="flex justify-between items-start mb-3">
+                                    <div className="flex-1">
+                                      <h4 className="font-semibold text-base">{student.name}</h4>
+                                      <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleRemoveStudentFromSubject(student.assignmentId)}
+                                    className="w-full h-12"
+                                  >
+                                    Remove
+                                  </Button>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+
+                          {/* Desktop: Table */}
+                          <div className="hidden sm:block rounded-md border overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Student Name</TableHead>
+                                  <TableHead>Hourly Rate</TableHead>
+                                  <TableHead>Actions</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
+                              </TableHeader>
+                              <TableBody>
+                                {getAssignedStudentsForSubject(selectedSubjectForAssignment).map(student => (
+                                  <TableRow key={student.assignmentId}>
+                                    <TableCell className="font-medium">{student.name}</TableCell>
+                                    <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                                    <TableCell>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => handleRemoveStudentFromSubject(student.assignmentId)}
+                                      >
+                                        Remove
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -1698,6 +1932,8 @@ export default function TeacherHomepage() {
           </TabsContent>
         </Tabs>
       </div>
+      <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
+    </PullToRefreshContainer>
   );
 }

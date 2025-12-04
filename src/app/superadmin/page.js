@@ -12,11 +12,15 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../../components/ui/dialog';
-import { Users, BookOpen, UserPlus, Settings, Calendar } from 'lucide-react';
+import { Users, BookOpen, UserPlus, Settings, Calendar, Trash2 } from 'lucide-react';
+import { usePullToRefresh } from '../../hooks/usePullToRefresh';
+import { PullToRefreshContainer } from '../../components/PullToRefresh';
+import { BottomNav } from '../../components/BottomNav';
 
 export default function SuperadminPage() {
   const { currentUser, userRole, loading } = useAuth();
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState('users');
 
   // User Management State
   const [users, setUsers] = useState([]);
@@ -69,6 +73,21 @@ export default function SuperadminPage() {
       fetchAllAssignments();
     }
   }, [currentUser, userRole]);
+
+  // Pull-to-refresh functionality
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchUsers(),
+      fetchAllSubjects(),
+      fetchAllStudents(),
+      fetchAllAssignments(),
+    ]);
+  };
+
+  const { pullState, containerRef } = usePullToRefresh(handleRefresh, {
+    enabled: true,
+    threshold: 80,
+  });
 
   const showMessage = (msg, type = 'success') => {
     setMessage(msg);
@@ -308,36 +327,37 @@ export default function SuperadminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold">Superadmin Dashboard</h1>
-          <p className="text-gray-600">Manage users, classes, students, and assignments</p>
+    <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-20 sm:pb-8">
+        <div className="max-w-7xl mx-auto">
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold">Superadmin Dashboard</h1>
+          <p className="text-sm sm:text-base text-gray-600">Manage users, classes, students, and assignments</p>
         </div>
 
         {message && (
-          <div className={`mb-4 p-4 rounded ${messageType === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+          <div className={`mb-4 p-3 sm:p-4 rounded text-sm sm:text-base ${messageType === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
             {message}
           </div>
         )}
 
-        <Tabs defaultValue="users" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="users">
-              <Users className="w-4 h-4 mr-2" />
-              Users
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
+            <TabsTrigger value="users" className="text-xs sm:text-sm">
+              <Users className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
-            <TabsTrigger value="classes">
-              <BookOpen className="w-4 h-4 mr-2" />
-              Classes
+            <TabsTrigger value="classes" className="text-xs sm:text-sm">
+              <BookOpen className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Classes</span>
             </TabsTrigger>
-            <TabsTrigger value="students">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Students
+            <TabsTrigger value="students" className="text-xs sm:text-sm">
+              <UserPlus className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Students</span>
             </TabsTrigger>
-            <TabsTrigger value="assignments">
-              <Calendar className="w-4 h-4 mr-2" />
-              Assignments
+            <TabsTrigger value="assignments" className="text-xs sm:text-sm">
+              <Calendar className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Assign</span>
             </TabsTrigger>
           </TabsList>
 
@@ -345,37 +365,66 @@ export default function SuperadminPage() {
           <TabsContent value="users">
             <Card>
               <CardHeader>
-                <CardTitle>User Management</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">User Management</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map(user => (
-                      <TableRow key={user.id}>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell className="capitalize">{user.role}</TableCell>
-                        <TableCell>
+                {/* Mobile Card Layout */}
+                <div className="sm:hidden space-y-3">
+                  {users.map(user => (
+                    <div key={user.id} className="border rounded-lg p-4 bg-white">
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Email</div>
+                          <div className="text-sm font-medium truncate">{user.email}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">Role</div>
                           <select
                             value={user.role}
                             onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                            className="border rounded px-2 py-1"
+                            className="w-full border rounded px-3 py-2.5 text-sm capitalize"
                           >
                             <option value="student">Student</option>
                             <option value="teacher">Teacher</option>
                             <option value="superadmin">Superadmin</option>
                           </select>
-                        </TableCell>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table Layout */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {users.map(user => (
+                        <TableRow key={user.id}>
+                          <TableCell className="max-w-xs truncate">{user.email}</TableCell>
+                          <TableCell className="capitalize">{user.role}</TableCell>
+                          <TableCell>
+                            <select
+                              value={user.role}
+                              onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                              className="border rounded px-3 py-2 text-sm"
+                            >
+                              <option value="student">Student</option>
+                              <option value="teacher">Teacher</option>
+                              <option value="superadmin">Superadmin</option>
+                            </select>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -384,16 +433,16 @@ export default function SuperadminPage() {
           <TabsContent value="classes">
             <Card>
               <CardHeader>
-                <CardTitle>Create Class for Teacher</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Create Class for Teacher</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <Label>Select Teacher</Label>
+                    <Label className="text-sm">Select Teacher</Label>
                     <select
                       value={selectedTeacherForClass}
                       onChange={(e) => setSelectedTeacherForClass(e.target.value)}
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                     >
                       <option value="">Select a teacher</option>
                       {teachers.map(teacher => (
@@ -403,39 +452,42 @@ export default function SuperadminPage() {
                   </div>
 
                   <div>
-                    <Label>Subject Name</Label>
+                    <Label className="text-sm">Subject Name</Label>
                     <Input
                       value={newSubject.name}
                       onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
                       placeholder="e.g., Mathematics"
+                      className="h-12 mt-1.5"
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label>Start Time</Label>
+                      <Label className="text-sm">Start Time</Label>
                       <Input
                         type="time"
                         value={newSubject.startTime}
                         onChange={(e) => setNewSubject({ ...newSubject, startTime: e.target.value })}
+                        className="h-12 mt-1.5"
                       />
                     </div>
                     <div>
-                      <Label>End Time</Label>
+                      <Label className="text-sm">End Time</Label>
                       <Input
                         type="time"
                         value={newSubject.endTime}
                         onChange={(e) => setNewSubject({ ...newSubject, endTime: e.target.value })}
+                        className="h-12 mt-1.5"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <Label>Schedule Type</Label>
+                    <Label className="text-sm">Schedule Type</Label>
                     <select
                       value={newSubject.recurring}
                       onChange={(e) => setNewSubject({ ...newSubject, recurring: e.target.value })}
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                     >
                       <option value="none">One-time only</option>
                       <option value="weekly">Weekly Recurring</option>
@@ -444,8 +496,8 @@ export default function SuperadminPage() {
 
                   {newSubject.recurring === 'weekly' && (
                     <div>
-                      <Label>Days of Week</Label>
-                      <div className="border rounded p-3 space-y-2">
+                      <Label className="text-sm">Days of Week</Label>
+                      <div className="border rounded p-3 sm:p-4 space-y-2 mt-1.5">
                         {[
                           { value: 0, label: 'Sunday' },
                           { value: 1, label: 'Monday' },
@@ -455,7 +507,7 @@ export default function SuperadminPage() {
                           { value: 5, label: 'Friday' },
                           { value: 6, label: 'Saturday' }
                         ].map((day) => (
-                          <label key={day.value} className="flex items-center space-x-2 cursor-pointer">
+                          <label key={day.value} className="flex items-center space-x-3 cursor-pointer py-2 hover:bg-gray-50 rounded px-2">
                             <input
                               type="checkbox"
                               checked={newSubject.daysOfWeek.includes(day.value.toString())}
@@ -472,7 +524,7 @@ export default function SuperadminPage() {
                                   });
                                 }
                               }}
-                              className="w-4 h-4"
+                              className="w-5 h-5"
                             />
                             <span className="text-sm">{day.label}</span>
                           </label>
@@ -483,59 +535,109 @@ export default function SuperadminPage() {
 
                   {newSubject.recurring === 'none' && (
                     <div>
-                      <Label>Date</Label>
+                      <Label className="text-sm">Date</Label>
                       <Input
                         type="date"
                         value={newSubject.date}
                         onChange={(e) => setNewSubject({ ...newSubject, date: e.target.value })}
+                        className="h-12 mt-1.5"
                       />
                     </div>
                   )}
 
-                  <Button onClick={handleCreateClass}>Create Class</Button>
+                  <Button onClick={handleCreateClass} className="w-full sm:w-auto h-12">Create Class</Button>
                 </div>
 
                 <div className="mt-8">
-                  <h3 className="font-semibold mb-4">All Classes</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Teacher</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Schedule</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {subjects.map(subject => {
-                        const teacher = teachers.find(t => t.id === subject.teacherId);
-                        return (
-                          <TableRow key={subject.id}>
-                            <TableCell>{teacher?.email || 'Unknown'}</TableCell>
-                            <TableCell>{subject.name}</TableCell>
-                            <TableCell>{subject.startTime} - {subject.endTime}</TableCell>
-                            <TableCell>
-                              {subject.recurring === 'weekly'
-                                ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
-                                    ? formatDaysOfWeek(subject.daysOfWeek)
-                                    : getDayName(subject.dayOfWeek)}`
-                                : `One-time: ${subject.date}`}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDeleteClass(subject.id)}
-                              >
-                                Delete
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Classes</h3>
+
+                  {/* Mobile Card Layout */}
+                  <div className="sm:hidden space-y-3">
+                    {subjects.map(subject => {
+                      const teacher = teachers.find(t => t.id === subject.teacherId);
+                      return (
+                        <div key={subject.id} className="border rounded-lg p-4 bg-white">
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-xs text-gray-500">Teacher</div>
+                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Subject</div>
+                              <div className="text-sm font-medium">{subject.name}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Time</div>
+                              <div className="text-sm">{subject.startTime} - {subject.endTime}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Schedule</div>
+                              <div className="text-sm">
+                                {subject.recurring === 'weekly'
+                                  ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+                                      ? formatDaysOfWeek(subject.daysOfWeek)
+                                      : getDayName(subject.dayOfWeek)}`
+                                  : `One-time: ${subject.date}`}
+                              </div>
+                            </div>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteClass(subject.id)}
+                              className="w-full mt-2 h-12"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table Layout */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Teacher</TableHead>
+                          <TableHead>Subject</TableHead>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Schedule</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {subjects.map(subject => {
+                          const teacher = teachers.find(t => t.id === subject.teacherId);
+                          return (
+                            <TableRow key={subject.id}>
+                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+                              <TableCell>{subject.name}</TableCell>
+                              <TableCell className="whitespace-nowrap">{subject.startTime} - {subject.endTime}</TableCell>
+                              <TableCell>
+                                {subject.recurring === 'weekly'
+                                  ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+                                      ? formatDaysOfWeek(subject.daysOfWeek)
+                                      : getDayName(subject.dayOfWeek)}`
+                                  : `One-time: ${subject.date}`}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDeleteClass(subject.id)}
+                                  className="h-10"
+                                >
+                                  Delete
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -545,16 +647,16 @@ export default function SuperadminPage() {
           <TabsContent value="students">
             <Card>
               <CardHeader>
-                <CardTitle>Add Student for Teacher</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Add Student for Teacher</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <Label>Select Teacher</Label>
+                    <Label className="text-sm">Select Teacher</Label>
                     <select
                       value={selectedTeacherForStudent}
                       onChange={(e) => setSelectedTeacherForStudent(e.target.value)}
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                     >
                       <option value="">Select a teacher</option>
                       {teachers.map(teacher => (
@@ -564,63 +666,99 @@ export default function SuperadminPage() {
                   </div>
 
                   <div>
-                    <Label>Student Name</Label>
+                    <Label className="text-sm">Student Name</Label>
                     <Input
                       value={newStudent.name}
                       onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
                       placeholder="Student Name"
+                      className="h-12 mt-1.5"
                     />
                   </div>
 
                   <div>
-                    <Label>Email (Optional)</Label>
+                    <Label className="text-sm">Email (Optional)</Label>
                     <Input
                       type="email"
                       value={newStudent.email}
                       onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
                       placeholder="student@example.com"
+                      className="h-12 mt-1.5"
                     />
                   </div>
 
                   <div>
-                    <Label>Hourly Rate (RM)</Label>
+                    <Label className="text-sm">Hourly Rate (RM)</Label>
                     <Input
                       type="number"
                       min="0"
                       step="0.01"
                       value={newStudent.hourlyRate}
                       onChange={(e) => setNewStudent({ ...newStudent, hourlyRate: e.target.value })}
+                      className="h-12 mt-1.5"
                     />
                   </div>
 
-                  <Button onClick={handleCreateStudent}>Add Student</Button>
+                  <Button onClick={handleCreateStudent} className="w-full sm:w-auto h-12">Add Student</Button>
                 </div>
 
                 <div className="mt-8">
-                  <h3 className="font-semibold mb-4">All Students</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Teacher</TableHead>
-                        <TableHead>Student Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Hourly Rate</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {students.map(student => {
-                        const teacher = teachers.find(t => t.id === student.teacherId);
-                        return (
-                          <TableRow key={student.id}>
-                            <TableCell>{teacher?.email || 'Unknown'}</TableCell>
-                            <TableCell>{student.name}</TableCell>
-                            <TableCell>{student.email || 'N/A'}</TableCell>
-                            <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Students</h3>
+
+                  {/* Mobile Card Layout */}
+                  <div className="sm:hidden space-y-3">
+                    {students.map(student => {
+                      const teacher = teachers.find(t => t.id === student.teacherId);
+                      return (
+                        <div key={student.id} className="border rounded-lg p-4 bg-white">
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-xs text-gray-500">Teacher</div>
+                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Student Name</div>
+                              <div className="text-sm font-medium">{student.name}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Email</div>
+                              <div className="text-sm truncate">{student.email || 'N/A'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Hourly Rate</div>
+                              <div className="text-sm font-medium">RM{student.hourlyRate || 35}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table Layout */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Teacher</TableHead>
+                          <TableHead>Student Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Hourly Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {students.map(student => {
+                          const teacher = teachers.find(t => t.id === student.teacherId);
+                          return (
+                            <TableRow key={student.id}>
+                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+                              <TableCell>{student.name}</TableCell>
+                              <TableCell className="max-w-xs truncate">{student.email || 'N/A'}</TableCell>
+                              <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -630,16 +768,16 @@ export default function SuperadminPage() {
           <TabsContent value="assignments">
             <Card>
               <CardHeader>
-                <CardTitle>Assign Student to Subject</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Assign Student to Subject</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <Label>Select Teacher</Label>
+                    <Label className="text-sm">Select Teacher</Label>
                     <select
                       value={selectedTeacherForAssignment}
                       onChange={(e) => setSelectedTeacherForAssignment(e.target.value)}
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                     >
                       <option value="">Select a teacher</option>
                       {teachers.map(teacher => (
@@ -651,11 +789,11 @@ export default function SuperadminPage() {
                   {selectedTeacherForAssignment && (
                     <>
                       <div>
-                        <Label>Select Student</Label>
+                        <Label className="text-sm">Select Student</Label>
                         <select
                           value={selectedStudentForAssignment}
                           onChange={(e) => setSelectedStudentForAssignment(e.target.value)}
-                          className="w-full border rounded px-3 py-2"
+                          className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                         >
                           <option value="">Select a student</option>
                           {teacherStudents.map(student => (
@@ -665,11 +803,11 @@ export default function SuperadminPage() {
                       </div>
 
                       <div>
-                        <Label>Select Subject</Label>
+                        <Label className="text-sm">Select Subject</Label>
                         <select
                           value={selectedSubjectForAssignment}
                           onChange={(e) => setSelectedSubjectForAssignment(e.target.value)}
-                          className="w-full border rounded px-3 py-2"
+                          className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
                         >
                           <option value="">Select a subject</option>
                           {teacherSubjects.map(subject => (
@@ -680,52 +818,97 @@ export default function SuperadminPage() {
                         </select>
                       </div>
 
-                      <Button onClick={handleAssignStudentToSubject}>Assign Student to Subject</Button>
+                      <Button onClick={handleAssignStudentToSubject} className="w-full sm:w-auto h-12">
+                        Assign Student to Subject
+                      </Button>
                     </>
                   )}
                 </div>
 
                 <div className="mt-8">
-                  <h3 className="font-semibold mb-4">All Assignments</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Teacher</TableHead>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {subjectAssignments.map(assignment => {
-                        const teacher = teachers.find(t => t.id === assignment.teacherId);
-                        const student = students.find(s => s.id === assignment.studentId);
-                        const subject = subjects.find(s => s.id === assignment.subjectId);
-                        return (
-                          <TableRow key={assignment.id}>
-                            <TableCell>{teacher?.email || 'Unknown'}</TableCell>
-                            <TableCell>{student?.name || 'Unknown'}</TableCell>
-                            <TableCell>{subject?.name || 'Unknown'}</TableCell>
-                            <TableCell>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDeleteAssignment(assignment.id)}
-                              >
-                                Remove
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Assignments</h3>
+
+                  {/* Mobile Card Layout */}
+                  <div className="sm:hidden space-y-3">
+                    {subjectAssignments.map(assignment => {
+                      const teacher = teachers.find(t => t.id === assignment.teacherId);
+                      const student = students.find(s => s.id === assignment.studentId);
+                      const subject = subjects.find(s => s.id === assignment.subjectId);
+                      return (
+                        <div key={assignment.id} className="border rounded-lg p-4 bg-white">
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-xs text-gray-500">Teacher</div>
+                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Student</div>
+                              <div className="text-sm font-medium">{student?.name || 'Unknown'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">Subject</div>
+                              <div className="text-sm">{subject?.name || 'Unknown'}</div>
+                            </div>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteAssignment(assignment.id)}
+                              className="w-full mt-2 h-12"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table Layout */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Teacher</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Subject</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {subjectAssignments.map(assignment => {
+                          const teacher = teachers.find(t => t.id === assignment.teacherId);
+                          const student = students.find(s => s.id === assignment.studentId);
+                          const subject = subjects.find(s => s.id === assignment.subjectId);
+                          return (
+                            <TableRow key={assignment.id}>
+                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+                              <TableCell>{student?.name || 'Unknown'}</TableCell>
+                              <TableCell>{subject?.name || 'Unknown'}</TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDeleteAssignment(assignment.id)}
+                                  className="h-10"
+                                >
+                                  Remove
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
+      <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
+    </PullToRefreshContainer>
   );
 }

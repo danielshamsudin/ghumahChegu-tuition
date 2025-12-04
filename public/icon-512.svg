@@ -1,0 +1,29 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#9333ea;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded rectangle -->
+  <rect width="512" height="512" rx="102.4" fill="url(#grad1)"/>
+
+  <!-- TMS Text -->
+  <text x="50%" y="50%"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="179.2"
+        font-weight="bold"
+        fill="white"
+        text-anchor="middle"
+        dominant-baseline="central">
+    TMS
+  </text>
+
+  <!-- Small book icon -->
+  <g transform="translate(332.8, 76.8) scale(0.512)">
+    <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"
+          fill="white"
+          opacity="0.3"/>
+  </g>
+</svg>

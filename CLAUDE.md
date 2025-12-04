@@ -73,6 +73,7 @@ Complex role-based rules in `firestore.rules`:
 ### Main Components
 - `src/app/page.js`: Root route with authentication-based redirect
 - `src/app/dashboard/page.js`: Main dashboard, renders TeacherHomepage for teachers
+- `src/app/superadmin/page.js`: Superadmin dashboard with tabs for Users, Classes, Students, and Assignments
 - `src/components/TeacherHomepage.jsx`: Primary teacher interface with tabs:
   - Overview: Calendar and today's classes
   - Students: Manage students with hourly rates
@@ -144,6 +145,38 @@ Complex role-based rules in `firestore.rules`:
 - Uses jsPDF and jspdf-autotable libraries
 - Professional formatted receipts with blue headers and striped rows
 - Automatically saves invoice record to Firestore
+
+### Superadmin Dashboard
+Accessible at `/superadmin` with 4 tabs:
+
+#### Users Tab
+- View all users in the system
+- Change user roles (student/teacher/superadmin)
+- Dropdown selection for role assignment
+
+#### Classes Tab
+- Create classes/subjects for any teacher
+- Select teacher from dropdown
+- Configure subject name, start/end time
+- Support for weekly recurring (multi-day) or one-time classes
+- View all classes across all teachers
+- Delete classes (automatically removes associated assignments)
+
+#### Students Tab
+- Add students for any teacher
+- Select teacher from dropdown
+- Enter student name (required), email (optional), hourly rate
+- View all students across all teachers with their rates
+
+#### Assignments Tab
+- Assign students to subjects for a specific teacher
+- Three-step process:
+  1. Select teacher
+  2. Select student (filtered by teacher)
+  3. Select subject (filtered by teacher)
+- View all current assignments
+- Remove assignments with delete button
+- Prevents duplicate assignments
 
 ## Important Implementation Details
 
