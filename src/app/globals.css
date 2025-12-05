@@ -136,18 +136,21 @@
     html {
       -webkit-overflow-scrolling: touch;
       scroll-behavior: smooth;
+      /* Disable pull-to-refresh */
+      overscroll-behavior-y: none;
+    }
+
+    /* Disable pull-to-refresh on body */
+    body {
+      overscroll-behavior-y: none;
+      -webkit-text-size-adjust: 100%;
+      -moz-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
 
     /* Better tap targets for mobile */
     button, a, input, select, textarea {
       min-height: 44px;
-    }
-
-    /* Disable text size adjustment on orientation change */
-    body {
-      -webkit-text-size-adjust: 100%;
-      -moz-text-size-adjust: 100%;
-      text-size-adjust: 100%;
     }
   }
 

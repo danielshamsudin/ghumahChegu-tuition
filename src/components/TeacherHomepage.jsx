@@ -68,7 +68,7 @@ export default function TeacherHomepage() {
   // Mobile state
   const [activeTab, setActiveTab] = useState('overview');
 
-  // Pull-to-refresh functionality
+  // Pull-to-refresh functionality - DISABLED
   const handleRefresh = async () => {
     await Promise.all([
       fetchStudents(),
@@ -80,7 +80,7 @@ export default function TeacherHomepage() {
   };
 
   const { pullState, containerRef } = usePullToRefresh(handleRefresh, {
-    enabled: true,
+    enabled: false, // Disabled pull-to-refresh
     threshold: 80,
   });
 
@@ -740,7 +740,7 @@ export default function TeacherHomepage() {
 
   return (
     <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
-      <div className="min-h-screen bg-gray-50 pb-20 sm:pb-6">
+      <div className="min-h-screen bg-gray-50 pb-16 sm:pb-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <div className="mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold">Teacher Dashboard</h1>

@@ -328,7 +328,7 @@ export default function SuperadminPage() {
 
   return (
     <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-20 sm:pb-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-16 sm:pb-8">
         <div className="max-w-7xl mx-auto">
         <div className="mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold">Superadmin Dashboard</h1>
