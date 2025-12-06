@@ -284,7 +284,10 @@ export default function TeacherPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
-      <h1 className="text-3xl font-bold mb-6 text-center">Teacher Dashboard</h1>
+      <div className="flex flex-col items-center gap-3 mb-6">
+        <img src="/logo.jpeg" alt="CLG Logo" className="w-16 h-16 rounded-lg" />
+        <h1 className="text-3xl font-bold text-center">CLG, Chegu Learning Centre</h1>
+      </div>
       {message && <p className="text-center text-green-600 mb-4">{message}</p>}
 
       {/* Add Student Section */}

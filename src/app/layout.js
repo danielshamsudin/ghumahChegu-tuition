@@ -14,13 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Tuition Management System",
-  description: "Manage students, classes, attendance, and invoices for tuition centers",
+  title: "CLG, Chegu Learning Centre",
+  description: "Manage students, classes, attendance, and invoices for Chegu Learning Centre",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/logo.jpeg",
+    shortcut: "/logo.jpeg",
+    apple: "/logo.jpeg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "TMS",
+    title: "CLG",
   },
 };
 
@@ -37,11 +42,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
+        <link rel="icon" href="/logo.jpeg" type="image/jpeg" />
         <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" href="/logo.jpeg" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="TMS" />
+        <meta name="apple-mobile-web-app-title" content="CLG" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#2563eb" />

@@ -50,10 +50,10 @@ export function BottomNav({ userRole, activeTab, onTabChange }) {
   return (
     <>
       {/* Spacer to prevent content from being hidden behind fixed bottom nav */}
-      <div className="h-20 sm:hidden" />
+      <div className="h-24 sm:hidden" />
 
-      {/* Bottom Navigation - Fixed to viewport bottom, only visible on mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg rounded-t-2xl shadow-lg border-t border-gray-200 sm:hidden z-50 safe-bottom">
+      {/* Bottom Navigation - Apple-style floating design, fixed to viewport */}
+      <nav className="fixed bottom-4 left-4 right-4 bg-white/90 backdrop-blur-lg rounded-2xl shadow-lg border border-gray-200 sm:hidden z-50 safe-bottom">
         <div className="grid grid-cols-5 h-16">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -63,7 +63,7 @@ export function BottomNav({ userRole, activeTab, onTabChange }) {
               <button
                 key={item.id}
                 onClick={() => onTabChange && onTabChange(item.id)}
-                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-tl-2xl last:rounded-tr-2xl ${
+                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${
                   isActive
                     ? 'text-blue-600 bg-blue-50'
                     : 'text-gray-600 hover:text-gray-900 active:bg-gray-100'
@@ -102,10 +102,10 @@ export function StaticBottomNav({ userRole }) {
   return (
     <>
       {/* Spacer to prevent content from being hidden behind fixed bottom nav */}
-      <div className="h-20 sm:hidden" />
+      <div className="h-24 sm:hidden" />
 
-      {/* Bottom Navigation - Fixed to viewport bottom, only visible on mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg rounded-t-2xl shadow-lg border-t border-gray-200 sm:hidden z-50 safe-bottom">
+      {/* Bottom Navigation - Apple-style floating design, fixed to viewport */}
+      <nav className="fixed bottom-4 left-4 right-4 bg-white/90 backdrop-blur-lg rounded-2xl shadow-lg border border-gray-200 sm:hidden z-50 safe-bottom">
         <div className={`grid h-16`} style={{ gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)` }}>
           {visibleItems.map((item) => {
             const Icon = item.icon;
@@ -115,7 +115,7 @@ export function StaticBottomNav({ userRole }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-tl-2xl last:rounded-tr-2xl ${
+                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${
                   isActive
                     ? 'text-blue-600 bg-blue-50'
                     : 'text-gray-600 hover:text-gray-900 active:bg-gray-100'

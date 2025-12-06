@@ -327,12 +327,16 @@ export default function SuperadminPage() {
   }
 
   return (
+    <>
     <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-16 sm:pb-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-8">
         <div className="max-w-7xl mx-auto">
         <div className="mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold">Superadmin Dashboard</h1>
-          <p className="text-sm sm:text-base text-gray-600">Manage users, classes, students, and assignments</p>
+          <div className="flex items-center gap-3 mb-2">
+            <img src="/logo.jpeg" alt="CLG Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
+            <h1 className="text-2xl sm:text-3xl font-bold">CLG, Chegu Learning Centre</h1>
+          </div>
+          <p className="text-sm sm:text-base text-gray-600">Superadmin Dashboard - Manage users, classes, students, and assignments</p>
         </div>
 
         {message && (
@@ -907,8 +911,11 @@ export default function SuperadminPage() {
           </TabsContent>
         </Tabs>
       </div>
-      <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
     </PullToRefreshContainer>
+
+    {/* Bottom Nav outside container to ensure viewport-fixed positioning */}
+    <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
+    </>
   );
 }

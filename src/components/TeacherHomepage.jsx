@@ -739,11 +739,13 @@ export default function TeacherHomepage() {
   }
 
   return (
+    <>
     <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
-      <div className="min-h-screen bg-gray-50 pb-16 sm:pb-6">
+      <div className="min-h-screen bg-gray-50 pb-24 sm:pb-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        <div className="mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold">Teacher Dashboard</h1>
+        <div className="mb-4 sm:mb-6 flex items-center gap-3">
+          <img src="/logo.jpeg" alt="CLG Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
+          <h1 className="text-2xl sm:text-3xl font-bold">CLG, Chegu Learning Centre</h1>
         </div>
 
         {/* Toast Notification */}
@@ -1932,8 +1934,11 @@ export default function TeacherHomepage() {
           </TabsContent>
         </Tabs>
       </div>
-      <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
     </PullToRefreshContainer>
+
+    {/* Bottom Nav outside container to ensure viewport-fixed positioning */}
+    <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
+    </>
   );
 }
