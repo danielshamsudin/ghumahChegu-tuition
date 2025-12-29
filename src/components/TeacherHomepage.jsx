@@ -636,7 +636,29 @@ export default function TeacherHomepage() {
         });
       }
 
+      // Helper to load images
+      const loadImage = (src) => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.src = src;
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+        });
+      };
+
       const pdf = new jsPDF();
+
+      try {
+        const [logoImg, qrImg] = await Promise.all([
+          loadImage('/logo.jpeg'),
+          loadImage('/qr.png')
+        ]);
+
+        // Add Logo (Top Right)
+        pdf.addImage(logoImg, 'JPEG', 150, 10, 40, 40);
+      } catch (err) {
+        console.warn("Could not load images:", err);
+      }
 
       pdf.setFontSize(20);
       pdf.text('INVOICE', 105, 20, { align: 'center' });
@@ -671,7 +693,22 @@ export default function TeacherHomepage() {
       const finalY = pdf.lastAutoTable?.finalY || 60;
       pdf.setFontSize(12);
       pdf.setFont(undefined, 'bold');
-      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 190, finalY + 15, { align: 'right' });
+
+      // Add QR Code and Payment Info
+      try {
+        const qrImg = await loadImage('/qr.png');
+        pdf.addImage(qrImg, 'PNG', 20, finalY + 30, 40, 40);
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, 'normal');
+        pdf.text("Scan to Pay", 20, finalY + 25);
+      } catch (e) {
+        // Ignore if QR load fails
+      }
+
+      // Signature Line
+      pdf.line(140, finalY + 50, 190, finalY + 50);
+      pdf.text("Teacher Signature", 165, finalY + 55, { align: 'center' });
 
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'];
