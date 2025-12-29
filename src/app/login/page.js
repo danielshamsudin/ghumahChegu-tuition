@@ -31,10 +31,10 @@ export default function LoginPage() {
         {/* Logo and Brand */}
         <div className="text-center mb-6 sm:mb-8">
           <div className="inline-flex items-center justify-center mb-4">
-            <img src="/logo.jpeg" alt="CLG Logo" className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl" />
+            <img src="/logo.jpeg" alt="CLC Logo" className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-            CLG, Chegu Learning Centre
+            CLC, Chegu Learning Centre
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
             Manage students, classes, and attendance

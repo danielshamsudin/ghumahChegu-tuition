@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "CLG, Chegu Learning Centre",
-  description: "Manage students, classes, attendance, and invoices for Chegu Learning Centre",
+  title: "CLC Tuition Management",
+  description: "Management system for CLC Tuition Centre",
   manifest: "/manifest.json",
   icons: {
     icon: "/logo.jpeg",

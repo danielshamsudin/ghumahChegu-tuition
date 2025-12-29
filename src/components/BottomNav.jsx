@@ -27,6 +27,7 @@ export function BottomNav({ userRole, activeTab, onTabChange }) {
     { id: 'classes', label: 'Classes', icon: BookOpen },
     { id: 'students', label: 'Students', icon: UserPlus },
     { id: 'assignments', label: 'Assign', icon: Calendar },
+    { id: 'invoices', label: 'Invoice', icon: FileText },
   ];
 
   // Determine which nav items to show based on user role and current page
@@ -63,11 +64,10 @@ export function BottomNav({ userRole, activeTab, onTabChange }) {
               <button
                 key={item.id}
                 onClick={() => onTabChange && onTabChange(item.id)}
-                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${
-                  isActive
+                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${isActive
                     ? 'text-blue-600 bg-blue-50'
                     : 'text-gray-600 hover:text-gray-900 active:bg-gray-100'
-                }`}
+                  }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
                 <span className="text-[10px] font-medium">{item.label}</span>
@@ -115,11 +115,10 @@ export function StaticBottomNav({ userRole }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${
-                  isActive
+                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${isActive
                     ? 'text-blue-600 bg-blue-50'
                     : 'text-gray-600 hover:text-gray-900 active:bg-gray-100'
-                }`}
+                  }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
                 <span className="text-[10px] font-medium">{item.label}</span>

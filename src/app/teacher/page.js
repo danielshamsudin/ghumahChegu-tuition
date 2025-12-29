@@ -143,7 +143,7 @@ export default function TeacherPage() {
   };
 
   const handleMarkAttendance = async (studentId, status) => {
-    
+
     try {
       const attendanceQuery = query(collection(db, 'attendance'),
         where('studentId', '==', studentId),
@@ -151,7 +151,7 @@ export default function TeacherPage() {
         where('date', '==', attendanceDate)
       );
       const existingAttendance = await getDocs(attendanceQuery);
-      
+
 
       if (existingAttendance.empty) {
         // Add new attendance record
@@ -163,8 +163,8 @@ export default function TeacherPage() {
           markedBy: currentUser.uid,
           markedAt: new Date(),
         };
-        
-        
+
+
         await addDoc(collection(db, 'attendance'), newAttendanceData);
       } else {
         // Update existing attendance record
@@ -174,7 +174,7 @@ export default function TeacherPage() {
           markedBy: currentUser.uid,
           markedAt: new Date(),
         };
-        
+
         await updateDoc(doc(db, 'attendance', recordId), updatedAttendanceData);
       }
       const student = students.find(s => s.id === studentId);
@@ -285,8 +285,8 @@ export default function TeacherPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="flex flex-col items-center gap-3 mb-6">
-        <img src="/logo.jpeg" alt="CLG Logo" className="w-16 h-16 rounded-lg" />
-        <h1 className="text-3xl font-bold text-center">CLG, Chegu Learning Centre</h1>
+        <img src="/logo.jpeg" alt="CLC Logo" className="w-16 h-16 rounded-lg" />
+        <h1 className="text-3xl font-bold text-center">CLC, Chegu Learning Centre</h1>
       </div>
       {message && <p className="text-center text-green-600 mb-4">{message}</p>}
 
@@ -462,7 +462,7 @@ export default function TeacherPage() {
         )}
       </section>
 
-      
+
 
       {/* Invoice List Section */}
       <section className="mb-8 p-6 bg-white rounded shadow-md">

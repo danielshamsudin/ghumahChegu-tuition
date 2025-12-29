@@ -58,9 +58,9 @@ export default function DashboardPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex justify-between items-center">
               <h1 className="text-base sm:text-xl font-semibold truncate flex items-center gap-2">
-                <img src="/logo.jpeg" alt="CLG Logo" className="w-8 h-8 rounded" />
-                <span className="hidden sm:inline">CLG, Chegu Learning Centre</span>
-                <span className="sm:hidden">CLG</span>
+                <img src="/logo.jpeg" alt="CLC Logo" className="w-8 h-8 rounded" />
+                <span className="hidden sm:inline">CLC, Chegu Learning Centre</span>
+                <span className="sm:hidden">CLC</span>
               </h1>
               <div className="flex items-center gap-2 sm:gap-4">
                 <div className="hidden md:block text-sm text-gray-600 truncate max-w-[200px]">
