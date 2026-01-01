@@ -206,9 +206,69 @@ export default function TeacherPage() {
         where('date', '<=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-31`)
       );
       const attendanceSnapshot = await getDocs(attendanceQuery);
-      const presentDays = attendanceSnapshot.docs.length;
+
+      // Group attendance by subject to calculate duration-based amounts
+      const attendanceBySubject = {};
+      for (const attendanceDoc of attendanceSnapshot.docs) {
+        const attendanceData = attendanceDoc.data();
+        const subjectId = attendanceData.subjectId;
+
+        if (!attendanceBySubject[subjectId]) {
+          attendanceBySubject[subjectId] = {
+            count: 0,
+            subjectId: subjectId
+          };
+        }
+        attendanceBySubject[subjectId].count++;
+      }
+
+      // Calculate total amount considering session duration
+      let totalAmount = 0;
+      const sessionDetails = [];
       const hourlyRate = student.hourlyRate || 35;
-      const amount = presentDays * hourlyRate;
+
+      for (const subjectId in attendanceBySubject) {
+        const sessionCount = attendanceBySubject[subjectId].count;
+        let sessionDurationHours = 1; // Default to 1 hour if subject not found
+        let subjectName = 'Unknown Subject';
+
+        // Fetch subject to get duration
+        if (subjectId && subjectId !== 'undefined') {
+          try {
+            const subjectDoc = await getSingleDoc(doc(db, 'subjects', subjectId));
+            if (subjectDoc.exists()) {
+              const subjectData = subjectDoc.data();
+              subjectName = subjectData.name || 'Unknown Subject';
+
+              // Calculate duration in hours from startTime and endTime
+              if (subjectData.startTime && subjectData.endTime) {
+                const [startHour, startMin] = subjectData.startTime.split(':').map(Number);
+                const [endHour, endMin] = subjectData.endTime.split(':').map(Number);
+                const startMinutes = startHour * 60 + startMin;
+                const endMinutes = endHour * 60 + endMin;
+                sessionDurationHours = (endMinutes - startMinutes) / 60;
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching subject:', error);
+          }
+        }
+
+        const subtotal = sessionCount * hourlyRate * sessionDurationHours;
+        totalAmount += subtotal;
+
+        sessionDetails.push({
+          subjectName,
+          sessionCount,
+          durationHours: sessionDurationHours,
+          subtotal
+        });
+      }
+
+      // If no attendance records found, set amount to 0
+      if (attendanceSnapshot.docs.length === 0) {
+        totalAmount = 0;
+      }
 
       // Check if invoice already exists for this student, month, and year
       const existingInvoiceQuery = query(collection(db, 'invoices'),
@@ -225,19 +285,25 @@ export default function TeacherPage() {
           teacherId: currentUser.uid,
           month: invoiceMonth,
           year: invoiceYear,
-          amount,
+          amount: totalAmount,
           status: 'pending',
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: hourlyRate },
+          details: {
+            sessionDetails: sessionDetails,
+            hourlyRate: hourlyRate
+          },
         });
       } else {
         // Update existing invoice
         const invoiceId = existingInvoiceSnapshot.docs[0].id;
         await updateDoc(doc(db, 'invoices', invoiceId), {
-          amount,
+          amount: totalAmount,
           status: 'pending', // Reset status if re-generated
           generatedAt: new Date(),
-          details: { presentDays, ratePerDay: hourlyRate },
+          details: {
+            sessionDetails: sessionDetails,
+            hourlyRate: hourlyRate
+          },
         });
       }
       setMessage(`Invoice generated for ${student.name} for ${invoiceMonth}/${invoiceYear} successfully!`);

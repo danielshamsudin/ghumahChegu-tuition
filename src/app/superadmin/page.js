@@ -367,14 +367,25 @@ export default function SuperadminPage() {
           studentAttendanceBySubject[subjectId].count++;
         });
 
-        // Resolve details
+        // Resolve details and calculate with duration
         for (const subjectId in studentAttendanceBySubject) {
           const subject = subjects.find(s => s.id === subjectId);
           const teacherForThisRecord = teachers.find(t => t.id === student.teacherId);
 
           const sessionCount = studentAttendanceBySubject[subjectId].count;
           const rate = student.hourlyRate || 35;
-          const subtotal = sessionCount * rate;
+
+          // Calculate session duration in hours
+          let sessionDurationHours = 1; // Default to 1 hour
+          if (subject && subject.startTime && subject.endTime) {
+            const [startHour, startMin] = subject.startTime.split(':').map(Number);
+            const [endHour, endMin] = subject.endTime.split(':').map(Number);
+            const startMinutes = startHour * 60 + startMin;
+            const endMinutes = endHour * 60 + endMin;
+            sessionDurationHours = (endMinutes - startMinutes) / 60;
+          }
+
+          const subtotal = sessionCount * rate * sessionDurationHours;
           grandTotal += subtotal;
 
           consolidatedData.push({
@@ -382,6 +393,7 @@ export default function SuperadminPage() {
             teacherName: teacherForThisRecord?.email || 'Unknown',
             subjectName: subject ? subject.name : 'Unknown Subject',
             sessions: sessionCount,
+            durationHours: sessionDurationHours,
             rate: rate,
             subtotal: subtotal
           });
@@ -430,21 +442,23 @@ export default function SuperadminPage() {
       const tableData = consolidatedData.map(item => [
         item.subjectName,
         item.sessions,
+        `${item.durationHours.toFixed(1)}h`,
         `RM ${item.rate.toFixed(2)}`,
         `RM ${item.subtotal.toFixed(2)}`
       ]);
 
       autoTable(pdf, {
         startY: 60,
-        head: [['Subject', 'Sessions', 'Rate', 'Subtotal']],
+        head: [['Subject', 'Sessions', 'Duration', 'Rate/hr', 'Subtotal']],
         body: tableData,
         theme: 'striped',
         headStyles: { fillColor: [59, 130, 246] },
         columnStyles: {
-          0: { cellWidth: 80 },
-          1: { cellWidth: 30, halign: 'center' },
-          2: { cellWidth: 35, halign: 'right' },
-          3: { cellWidth: 35, halign: 'right' }
+          0: { cellWidth: 60 },
+          1: { cellWidth: 25, halign: 'center' },
+          2: { cellWidth: 25, halign: 'center' },
+          3: { cellWidth: 30, halign: 'right' },
+          4: { cellWidth: 35, halign: 'right' }
         }
       });
 
