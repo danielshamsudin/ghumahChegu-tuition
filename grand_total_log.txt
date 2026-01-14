@@ -1,0 +1,265 @@
+ 
++      try {
++        const [logoImg, qrImg] = await Promise.all([
++          loadImage('/logo.jpeg'),
++          loadImage('/qr.png')
++        ]);
++
++        // Add Logo (Top Right)
++        pdf.addImage(logoImg, 'JPEG', 150, 10, 40, 40);
++      } catch (err) {
++        console.warn("Could not load images:", err);
++      }
++
+       pdf.setFontSize(20);
+       pdf.text('INVOICE', 105, 20, { align: 'center' });
+ 
+@@ -671,7 +693,22 @@ export default function TeacherHomepage() {
+       const finalY = pdf.lastAutoTable?.finalY || 60;
+       pdf.setFontSize(12);
+       pdf.setFont(undefined, 'bold');
+-      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
++      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 190, finalY + 15, { align: 'right' });
++
++      // Add QR Code and Payment Info
++      try {
++        const qrImg = await loadImage('/qr.png');
++        pdf.addImage(qrImg, 'PNG', 20, finalY + 30, 40, 40);
++        pdf.setFontSize(10);
++        pdf.setFont(undefined, 'normal');
++        pdf.text("Scan to Pay", 20, finalY + 25);
++      } catch (e) {
++        // Ignore if QR load fails
++      }
++
++      // Signature Line
++      pdf.line(140, finalY + 50, 190, finalY + 50);
++      pdf.text("Teacher Signature", 165, finalY + 55, { align: 'center' });
+ 
+       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+         'July', 'August', 'September', 'October', 'November', 'December'];
+
+commit 663cc547485b2e390cb27fdd6c58cf85081ed40b
+--
++        `RM ${item.subtotal.toFixed(2)}`
++      ]);
++
++      autoTable(pdf, {
++        startY: 60,
++        head: [['Subject', 'Sessions', 'Rate', 'Subtotal']],
++        body: tableData,
++        theme: 'striped',
++        headStyles: { fillColor: [59, 130, 246] },
++        columnStyles: {
++          0: { cellWidth: 80 },
++          1: { cellWidth: 30, halign: 'center' },
++          2: { cellWidth: 35, halign: 'right' },
++          3: { cellWidth: 35, halign: 'right' }
++        }
++      });
++
++      const finalY = pdf.lastAutoTable?.finalY || 60;
++      pdf.setFontSize(12);
++      pdf.setFont(undefined, 'bold');
++      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 190, finalY + 15, { align: 'right' });
++
++      // Add QR Code and Payment Info
++      try {
++        const qrImg = await loadImage('/qr.png');
++        pdf.addImage(qrImg, 'PNG', 20, finalY + 30, 40, 40);
++        pdf.setFontSize(10);
++        pdf.setFont(undefined, 'normal');
++        pdf.text("Scan to Pay", 20, finalY + 25);
++      } catch (e) {
++        // Ignore if QR load fails
++      }
++
++      // Signature Line
++      pdf.line(140, finalY + 50, 190, finalY + 50);
++      pdf.text("Teacher Signature", 165, finalY + 55, { align: 'center' });
++
++      // Save PDF
++      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++      const monthName = monthNames[invoiceMonth - 1];
++      const fileName = `${consolidatedStudentName.replace(/\s+/g, '_')}_${monthName}${invoiceYear}_Consolidated.pdf`;
+--
+                 <span className="text-[10px] font-medium">{item.label}</span>
+@@ -115,11 +115,10 @@ export function StaticBottomNav({ userRole }) {
+               <Link
+                 key={item.href}
+                 href={item.href}
+-                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${
+-                  isActive
++                className={`flex flex-col items-center justify-center space-y-1 transition-all relative first:rounded-l-2xl last:rounded-r-2xl ${isActive
+                     ? 'text-blue-600 bg-blue-50'
+                     : 'text-gray-600 hover:text-gray-900 active:bg-gray-100'
+-                }`}
++                  }`}
+               >
+                 <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                 <span className="text-[10px] font-medium">{item.label}</span>
+diff --git a/src/components/TeacherHomepage.jsx b/src/components/TeacherHomepage.jsx
+index 415a419..e297b5c 100644
+--- a/src/components/TeacherHomepage.jsx
++++ b/src/components/TeacherHomepage.jsx
+@@ -674,7 +674,7 @@ export default function TeacherHomepage() {
+       pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+ 
+       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+-                         'July', 'August', 'September', 'October', 'November', 'December'];
++        'July', 'August', 'September', 'October', 'November', 'December'];
+       const monthName = monthNames[invoiceMonth - 1];
+       const fileName = `${student.name.replace(/\s+/g, '_')}_${monthName}${invoiceYear}.pdf`;
+       pdf.save(fileName);
+@@ -740,43 +740,42 @@ export default function TeacherHomepage() {
+ 
+   return (
+     <>
+-    <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
+-      <div className="min-h-screen bg-gray-50 pb-24 sm:pb-6">
+-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+-        <div className="mb-4 sm:mb-6 flex items-center gap-3">
+-          <img src="/logo.jpeg" alt="CLG Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
+-          <h1 className="text-2xl sm:text-3xl font-bold">CLG, Chegu Learning Centre</h1>
+-        </div>
+-
+-        {/* Toast Notification */}
+--
+ 
+-      // Generate PDF
+       const pdf = new jsPDF();
+ 
+-      // Header
+       pdf.setFontSize(20);
+       pdf.text('INVOICE', 105, 20, { align: 'center' });
+ 
+@@ -652,7 +646,6 @@ export default function TeacherHomepage() {
+       pdf.text(`Period: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
+       pdf.text(`Date: ${new Date().toLocaleDateString()}`, 20, 49);
+ 
+-      // Table
+       const tableData = invoiceData.map(item => [
+         item.subjectName,
+         item.sessions,
+@@ -675,20 +668,17 @@ export default function TeacherHomepage() {
+         }
+       });
+ 
+-      // Grand Total
+       const finalY = pdf.lastAutoTable?.finalY || 60;
+       pdf.setFontSize(12);
+       pdf.setFont(undefined, 'bold');
+       pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+ 
+-      // Save PDF
+       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+       const monthName = monthNames[invoiceMonth - 1];
+       const fileName = `${student.name.replace(/\s+/g, '_')}_${monthName}${invoiceYear}.pdf`;
+       pdf.save(fileName);
+ 
+-      // Save invoice record to Firestore
+       const existingInvoiceQuery = query(collection(db, 'invoices'),
+         where('studentId', '==', student.id),
+         where('teacherId', '==', currentUser.uid),
+@@ -739,41 +729,47 @@ export default function TeacherHomepage() {
+ 
+   if (loading) {
+     return (
+-      <div className="min-h-screen flex items-center justify-center">
+-        <div>Loading your dashboard...</div>
++      <div className="min-h-screen flex items-center justify-center p-4">
++        <div className="text-center">
+--
+ 
+       // Table
+       const tableData = invoiceData.map(item => [
+-        item.subjectName,
++        `${item.subjectName}\n(${item.dates})`,
+         item.sessions,
+         `RM ${item.rate.toFixed(2)}`,
+         `RM ${item.subtotal.toFixed(2)}`
+@@ -654,8 +694,8 @@ export default function TeacherHomepage() {
+         head: [['Subject', 'Sessions', 'Rate per Session', 'Subtotal']],
+         body: tableData,
+         theme: 'striped',
+-        headStyles: { fillColor: [59, 130, 246] },
+-        styles: { fontSize: 10 },
++        headStyles: { fillColor: [59, 130, 246], font: 'Helvetica', fontStyle: 'bold' },
++        styles: { fontSize: 10, font: 'Helvetica' },
+         columnStyles: {
+           0: { cellWidth: 80 },
+           1: { cellWidth: 30, halign: 'center' },
+@@ -667,9 +707,56 @@ export default function TeacherHomepage() {
+       // Grand Total
+       const finalY = pdf.lastAutoTable?.finalY || 60;
+       pdf.setFontSize(12);
+-      pdf.setFont(undefined, 'bold');
++      pdf.setFont('Helvetica', 'bold');
+       pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
+ 
++      // Footer - Notes
++      let footerY = finalY + 30;
++      pdf.setFontSize(10);
++      pdf.setFont('Helvetica', 'bold');
++      pdf.text('Notes:', 20, footerY);
++
++      pdf.setFont('Helvetica', 'normal');
++      footerY += 7;
++
++      // Split long text into multiple lines for better formatting
++      const notes = [
++        '\u2022 Class cancelled by the pupils is strictly cannot be replaced. This is due to the teacher\'s tuition',
++        '  schedule is pack.',
++        '\u2022 Class can be rescheduled by the teacher if needed.',
++        '\u2022 Payment shall only pay directly to teacher by online banking.',
++        '  \u2022 39201079312',
++        '  \u2022 GHUMAH CHEGU ENTERPRISE',
++        '  \u2022 HONG LEONG BANK (HLB)',
++        '\u2022 Payment term: 3 days after invoice date'
+--
++        item.sessions,
++        `RM ${item.rate.toFixed(2)}`,
++        `RM ${item.subtotal.toFixed(2)}`
++      ]);
++
++      autoTable(pdf, {
++        startY: 60,
++        head: [['Subject', 'Sessions', 'Rate per Session', 'Subtotal']],
++        body: tableData,
++        theme: 'striped',
++        headStyles: { fillColor: [59, 130, 246] },
++        styles: { fontSize: 10 },
++        columnStyles: {
++          0: { cellWidth: 80 },
++          1: { cellWidth: 30, halign: 'center' },
++          2: { cellWidth: 40, halign: 'right' },
++          3: { cellWidth: 40, halign: 'right' }
++        }
++      });
++
++      // Grand Total
++      const finalY = pdf.lastAutoTable?.finalY || 60;
++      pdf.setFontSize(12);
++      pdf.setFont(undefined, 'bold');
++      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 150, finalY + 15, { align: 'right' });
++
++      // Save PDF
++      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
++                         'July', 'August', 'September', 'October', 'November', 'December'];
++      const monthName = monthNames[invoiceMonth - 1];
++      const fileName = `${student.name.replace(/\s+/g, '_')}_${monthName}${invoiceYear}.pdf`;
++      pdf.save(fileName);
++
++      // Save invoice record to Firestore
+       const existingInvoiceQuery = query(collection(db, 'invoices'),
+         where('studentId', '==', student.id),
+         where('teacherId', '==', currentUser.uid),
+@@ -499,25 +692,26 @@ export default function TeacherHomepage() {
+           teacherId: currentUser.uid,
+           month: invoiceMonth,
+           year: invoiceYear,
+-          amount,
++          amount: grandTotal,
+           status: 'pending',
+           generatedAt: new Date(),

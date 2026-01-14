@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc as getSingleDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc as getSingleDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
 // Shadcn UI Components
@@ -39,15 +39,19 @@ export default function TeacherPage() {
   const fetchStudents = async () => {
     if (currentUser && (userRole === 'teacher' || userRole === 'superadmin')) {
       const studentsCollectionRef = collection(db, 'students');
-      let q;
-      if (userRole === 'teacher') {
-        q = query(studentsCollectionRef, where('teacherId', '==', currentUser.uid));
-      } else { // superadmin can see all students
-        q = studentsCollectionRef;
+      try {
+        const studentsSnapshot = await getDocs(studentsCollectionRef);
+        const studentsList = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setStudents(studentsList);
+
+        // Removed Lazy Migration: Since all teachers can see all students, 
+        // migrating old `teacherId` to `teacherIds` is less time-critical 
+        // for access, though still good for data model cleanliness. 
+        // We can keep a background check or just rely on the superadmin tool.
+      } catch (err) {
+        console.error("Error fetching students:", err);
+        setMessage("Error fetching students. Please try refreshing.");
       }
-      const studentsSnapshot = await getDocs(q);
-      const studentsList = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setStudents(studentsList);
     }
   };
 
@@ -91,7 +95,7 @@ export default function TeacherPage() {
         name: newStudentName,
         email: newStudentEmail || '',
         hourlyRate: parseFloat(newStudentHourlyRate),
-        teacherId: currentUser.uid,
+        teacherIds: [currentUser.uid],
         createdAt: new Date(),
       });
       setNewStudentName('');

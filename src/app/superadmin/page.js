@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { collection, getDocs, doc, updateDoc, addDoc, query, where, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, addDoc, query, where, deleteDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -223,7 +223,7 @@ export default function SuperadminPage() {
         name: newStudent.name,
         email: newStudent.email || '',
         hourlyRate: parseFloat(newStudent.hourlyRate),
-        teacherId: selectedTeacherForStudent,
+        teacherIds: [selectedTeacherForStudent],
         createdAt: new Date(),
       });
       setNewStudent({ name: '', email: '', hourlyRate: 35 });
@@ -319,6 +319,50 @@ export default function SuperadminPage() {
     }
   }, [selectedTeacherForAssignment, students, subjects]);
 
+  const handleMigrateStudents = async () => {
+    if (!currentUser || userRole !== 'superadmin') return;
+    try {
+      showMessage('Starting migration...', 'info');
+      const studentsSnapshot = await getDocs(collection(db, 'students'));
+      let count = 0;
+      for (const studentDoc of studentsSnapshot.docs) {
+        const data = studentDoc.data();
+        if (data.teacherId && !data.teacherIds) {
+          await updateDoc(doc(db, 'students', studentDoc.id), {
+            teacherIds: [data.teacherId],
+            teacherId: deleteField()
+          });
+          count++;
+        }
+      }
+      showMessage(`Migration complete. Updated ${count} students.`, 'success');
+      fetchAllStudents();
+    } catch (error) {
+      console.error('Migration failed:', error);
+      showMessage(`Migration failed: ${error.message}`, 'error');
+    }
+  };
+
+  const handleDeleteStudent = async (studentId) => {
+    if (!confirm('Are you sure you want to delete this student? This action cannot be undone.')) return;
+    try {
+      await deleteDoc(doc(db, 'students', studentId));
+
+      // Also delete any assignments associated with this student
+      const assignmentsToDelete = subjectAssignments.filter(a => a.studentId === studentId);
+      for (const assignment of assignmentsToDelete) {
+        await deleteDoc(doc(db, 'subjectAssignments', assignment.id));
+      }
+
+      showMessage('Student deleted successfully!');
+      fetchAllStudents();
+      fetchAllAssignments();
+    } catch (error) {
+      console.error("Error deleting student:", error);
+      showMessage(`Failed to delete student: ${error.message}`, 'error');
+    }
+  };
+
   const getDayName = (dayNum) => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return days[dayNum] || 'Unknown';
@@ -370,7 +414,7 @@ export default function SuperadminPage() {
         // Resolve details and calculate with duration
         for (const subjectId in studentAttendanceBySubject) {
           const subject = subjects.find(s => s.id === subjectId);
-          const teacherForThisRecord = teachers.find(t => t.id === student.teacherId);
+          const teacherForThisRecord = teachers.find(t => t.id === subject?.teacherId);
 
           const sessionCount = studentAttendanceBySubject[subjectId].count;
           const rate = student.hourlyRate || 35;
@@ -558,6 +602,10 @@ export default function SuperadminPage() {
                   <FileText className="w-4 h-4 sm:mr-2" />
                   <span className="hidden sm:inline">Invoices</span>
                 </TabsTrigger>
+                <TabsTrigger value="migration" className="text-xs sm:text-sm">
+                  <Settings className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Migration</span>
+                </TabsTrigger>
               </TabsList>
 
               {/* User Management Tab */}
@@ -624,6 +672,18 @@ export default function SuperadminPage() {
                         </TableBody>
                       </Table>
                     </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="migration">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Data Migration</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="mb-4">One-click migration to update student records from "Single Teacher" to "Multiple Teachers" data model.</p>
+                    <Button onClick={handleMigrateStudents}>Migrate Students</Button>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -926,6 +986,15 @@ export default function SuperadminPage() {
                                   <div className="text-xs text-gray-500">Hourly Rate</div>
                                   <div className="text-sm font-medium">RM{student.hourlyRate || 35}</div>
                                 </div>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDeleteStudent(student.id)}
+                                  className="w-full mt-2 h-12"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </Button>
                               </div>
                             </div>
                           );
@@ -941,6 +1010,7 @@ export default function SuperadminPage() {
                               <TableHead>Student Name</TableHead>
                               <TableHead>Email</TableHead>
                               <TableHead>Hourly Rate</TableHead>
+                              <TableHead>Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -952,6 +1022,15 @@ export default function SuperadminPage() {
                                   <TableCell>{student.name}</TableCell>
                                   <TableCell className="max-w-xs truncate">{student.email || 'N/A'}</TableCell>
                                   <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                                  <TableCell>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => handleDeleteStudent(student.id)}
+                                    >
+                                      Delete
+                                    </Button>
+                                  </TableCell>
                                 </TableRow>
                               );
                             })}

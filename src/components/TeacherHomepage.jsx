@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, deleteField } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Calendar } from './ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -64,6 +64,7 @@ export default function TeacherHomepage() {
   const [invoiceMonth, setInvoiceMonth] = useState(new Date().getMonth() + 1);
   const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
   const [invoices, setInvoices] = useState([]);
+  const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
 
   // Mobile state
   const [activeTab, setActiveTab] = useState('overview');
@@ -96,7 +97,7 @@ export default function TeacherHomepage() {
       setTimeout(() => {
         setShowNotification(false);
       }, 300);
-    }, 1000);
+    }, 3000);
   };
 
   useEffect(() => {
@@ -119,13 +120,7 @@ export default function TeacherHomepage() {
   const fetchStudents = async () => {
     try {
       const studentsCollectionRef = collection(db, 'students');
-      let q;
-      if (userRole === 'teacher') {
-        q = query(studentsCollectionRef, where('teacherId', '==', currentUser.uid));
-      } else {
-        q = studentsCollectionRef;
-      }
-      const studentsSnapshot = await getDocs(q);
+      const studentsSnapshot = await getDocs(studentsCollectionRef);
       const studentsList = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setStudents(studentsList);
     } catch (error) {
@@ -463,7 +458,7 @@ export default function TeacherHomepage() {
         name: newStudentName,
         email: newStudentEmail || '',
         hourlyRate: parseFloat(newStudentHourlyRate),
-        teacherId: currentUser.uid,
+        teacherIds: [currentUser.uid],
         createdAt: new Date(),
       });
       setNewStudentName('');
@@ -622,15 +617,38 @@ export default function TeacherHomepage() {
       let grandTotal = 0;
       const hourlyRate = student.hourlyRate || 35;
 
+
+
+      // Helper to calculate duration in hours
+      const calculateDuration = (startTime, endTime) => {
+        if (!startTime || !endTime) return 0;
+        const [startH, startM] = startTime.split(':').map(Number);
+        const [endH, endM] = endTime.split(':').map(Number);
+        const startMinutes = startH * 60 + startM;
+        const endMinutes = endH * 60 + endM;
+        const diffMinutes = endMinutes - startMinutes;
+        return diffMinutes > 0 ? (diffMinutes / 60) : 0;
+      };
+
       for (const subjectId in attendanceBySubject) {
         const subject = subjects.find(s => s.id === subjectId);
         const sessionCount = attendanceBySubject[subjectId].count;
-        const subtotal = sessionCount * hourlyRate;
+
+        let duration = 0;
+        let subjectName = 'Unknown Subject';
+
+        if (subject) {
+          subjectName = subject.name;
+          duration = calculateDuration(subject.startTime, subject.endTime);
+        }
+
+        const subtotal = sessionCount * hourlyRate * (duration > 0 ? duration : 1); // Fallback to 1 hour if duration is 0/invalid
         grandTotal += subtotal;
 
         invoiceData.push({
-          subjectName: subject ? subject.name : 'Unknown Subject',
+          subjectName: subjectName,
           sessions: sessionCount,
+          duration: duration.toFixed(1),
           rate: hourlyRate,
           subtotal: subtotal
         });
@@ -671,22 +689,24 @@ export default function TeacherHomepage() {
       const tableData = invoiceData.map(item => [
         item.subjectName,
         item.sessions,
+        item.duration,
         `RM ${item.rate.toFixed(2)}`,
         `RM ${item.subtotal.toFixed(2)}`
       ]);
 
       autoTable(pdf, {
         startY: 60,
-        head: [['Subject', 'Sessions', 'Rate per Session', 'Subtotal']],
+        head: [['Subject', 'Sessions', 'Duration (Hrs)', 'Rate (RM/hr)', 'Subtotal']],
         body: tableData,
         theme: 'striped',
         headStyles: { fillColor: [59, 130, 246] },
         styles: { fontSize: 10 },
         columnStyles: {
-          0: { cellWidth: 80 },
-          1: { cellWidth: 30, halign: 'center' },
-          2: { cellWidth: 40, halign: 'right' },
-          3: { cellWidth: 40, halign: 'right' }
+          0: { cellWidth: 60 },
+          1: { cellWidth: 25, halign: 'center' },
+          2: { cellWidth: 30, halign: 'center' },
+          3: { cellWidth: 35, halign: 'right' },
+          4: { cellWidth: 40, halign: 'right' }
         }
       });
 
@@ -709,6 +729,28 @@ export default function TeacherHomepage() {
       // Signature Line
       pdf.line(140, finalY + 50, 190, finalY + 50);
       pdf.text("Teacher Signature", 165, finalY + 55, { align: 'center' });
+
+      // Footer - Notes
+      let footerY = finalY + 80;
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, 'bold');
+      pdf.text('Notes:', 20, footerY);
+
+      pdf.setFont(undefined, 'normal');
+      footerY += 7;
+
+      const notes = [
+        '\u2022 Class cancelled by the pupils is strictly cannot be replaced. This is due to the teacher\'s tuition',
+        '  schedule is pack.',
+        '\u2022 Class can be rescheduled by the teacher if needed.',
+        '\u2022 Payment shall only pay directly to teacher by online banking.',
+        '  \u2022 39201079312',
+        '  \u2022 GHUMAH CHEGU ENTERPRISE',
+        '  \u2022 HONG LEONG BANK (HLB)',
+        '\u2022 Payment term: 3 days after invoice date'
+      ];
+
+      pdf.text(notes, 20, footerY);
 
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'];
@@ -786,12 +828,12 @@ export default function TeacherHomepage() {
             </div>
 
             {/* Toast Notification */}
-            {showNotification && message && (
-              <div className="fixed top-20 right-4 left-4 sm:left-auto sm:right-4 z-50 max-w-sm">
-                <div className={`toast-notification ${messageType === 'success' ? 'bg-green-600' :
+            {showNotification && (
+              <div className="fixed top-4 right-4 z-50 text-base max-w-[90vw] sm:max-w-md w-full toast-notification">
+                <div className={`p-4 rounded-lg shadow-lg flex items-center space-x-3 text-white ${messageType === 'success' ? 'bg-green-500' :
                   messageType === 'warning' ? 'bg-yellow-500' :
-                    messageType === 'error' ? 'bg-red-600' : 'bg-green-600'
-                  } text-white px-4 py-3 sm:px-6 rounded-lg shadow-lg flex items-center gap-2 transition-all duration-300 ease-in-out transform translate-x-0 opacity-100`}>
+                    'bg-red-500'
+                  }`}>
                   {messageType === 'success' && (
                     <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1072,6 +1114,14 @@ export default function TeacherHomepage() {
                     </Dialog>
                   </CardHeader>
                   <CardContent>
+                    <div className="mb-6">
+                      <Input
+                        placeholder="Search students by name or email..."
+                        value={studentSearchQuery}
+                        onChange={(e) => setStudentSearchQuery(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
                     {students.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
                         <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1079,132 +1129,153 @@ export default function TeacherHomepage() {
                       </div>
                     ) : (
                       <>
-                        {/* Mobile: Card layout, Desktop: Table */}
-                        <div className="block sm:hidden space-y-3">
-                          {students.map(student => (
-                            <Card key={student.id} className="border">
-                              <CardContent className="p-4">
-                                <div className="flex justify-between items-start mb-3">
-                                  <div className="flex-1">
-                                    <h3 className="font-semibold text-base">{student.name}</h3>
-                                    <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
-                                  </div>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Dialog>
-                                    <DialogTrigger asChild>
-                                      <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)} className="flex-1">
-                                        Edit
-                                      </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="w-[95vw] max-w-md">
-                                      <DialogHeader>
-                                        <DialogTitle>Edit Student</DialogTitle>
-                                      </DialogHeader>
-                                      <div className="grid gap-4 py-4">
-                                        <div className="space-y-2">
-                                          <Label htmlFor="editStudentName">Name</Label>
-                                          <Input
-                                            id="editStudentName"
-                                            value={editingStudent?.name || ''}
-                                            onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
-                                            className="h-12"
-                                          />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label htmlFor="editStudentHourlyRate">Hourly Rate (RM)</Label>
-                                          <Input
-                                            id="editStudentHourlyRate"
-                                            type="number"
-                                            min="0"
-                                            step="0.01"
-                                            value={editingStudent?.hourlyRate || ''}
-                                            onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
-                                            className="h-12"
-                                          />
+                        {students.filter(student =>
+                          student.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
+                          (student.email && student.email.toLowerCase().includes(studentSearchQuery.toLowerCase()))
+                        ).length === 0 ? (
+                          <div className="text-center py-8 text-gray-500">
+                            <p className="text-sm sm:text-base">No students found matching "{studentSearchQuery}"</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Mobile: Card layout, Desktop: Table */}
+                            <div className="block sm:hidden space-y-3">
+                              {students
+                                .filter(student =>
+                                  student.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
+                                  (student.email && student.email.toLowerCase().includes(studentSearchQuery.toLowerCase()))
+                                )
+                                .map(student => (
+                                  <Card key={student.id} className="border">
+                                    <CardContent className="p-4">
+                                      <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                          <h3 className="font-semibold text-base">{student.name}</h3>
+                                          <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
                                         </div>
                                       </div>
-                                      <DialogFooter>
-                                        <Button type="submit" onClick={handleUpdateStudent} className="w-full sm:w-auto h-12">
-                                          Save Changes
+                                      <div className="flex gap-2">
+                                        <Dialog>
+                                          <DialogTrigger asChild>
+                                            <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)} className="flex-1">
+                                              Edit
+                                            </Button>
+                                          </DialogTrigger>
+                                          <DialogContent className="w-[95vw] max-w-md">
+                                            <DialogHeader>
+                                              <DialogTitle>Edit Student</DialogTitle>
+                                            </DialogHeader>
+                                            <div className="grid gap-4 py-4">
+                                              <div className="space-y-2">
+                                                <Label htmlFor="editStudentName">Name</Label>
+                                                <Input
+                                                  id="editStudentName"
+                                                  value={editingStudent?.name || ''}
+                                                  onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                                                  className="h-12"
+                                                />
+                                              </div>
+                                              <div className="space-y-2">
+                                                <Label htmlFor="editStudentHourlyRate">Hourly Rate (RM)</Label>
+                                                <Input
+                                                  id="editStudentHourlyRate"
+                                                  type="number"
+                                                  min="0"
+                                                  step="0.01"
+                                                  value={editingStudent?.hourlyRate || ''}
+                                                  onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
+                                                  className="h-12"
+                                                />
+                                              </div>
+                                            </div>
+                                            <DialogFooter>
+                                              <Button type="submit" onClick={handleUpdateStudent} className="w-full sm:w-auto h-12">
+                                                Save Changes
+                                              </Button>
+                                            </DialogFooter>
+                                          </DialogContent>
+                                        </Dialog>
+                                        <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)} className="flex-1">
+                                          Delete
                                         </Button>
-                                      </DialogFooter>
-                                    </DialogContent>
-                                  </Dialog>
-                                  <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)} className="flex-1">
-                                    Delete
-                                  </Button>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                            </div>
 
-                        {/* Desktop: Table */}
-                        <div className="hidden sm:block rounded-md border overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Hourly Rate</TableHead>
-                                <TableHead>Actions</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {students.map(student => (
-                                <TableRow key={student.id}>
-                                  <TableCell className="font-medium">{student.name}</TableCell>
-                                  <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                                  <TableCell>
-                                    <div className="flex gap-2">
-                                      <Dialog>
-                                        <DialogTrigger asChild>
-                                          <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)}>
-                                            Edit
-                                          </Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                          <DialogHeader>
-                                            <DialogTitle>Edit Student</DialogTitle>
-                                          </DialogHeader>
-                                          <div className="grid gap-4 py-4">
-                                            <div className="grid grid-cols-4 items-center gap-4">
-                                              <Label htmlFor="editStudentName" className="text-right">Name</Label>
-                                              <Input
-                                                id="editStudentName"
-                                                value={editingStudent?.name || ''}
-                                                onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
-                                                className="col-span-3"
-                                              />
-                                            </div>
-                                            <div className="grid grid-cols-4 items-center gap-4">
-                                              <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
-                                              <Input
-                                                id="editStudentHourlyRate"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={editingStudent?.hourlyRate || ''}
-                                                onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
-                                                className="col-span-3"
-                                              />
-                                            </div>
+                            {/* Desktop: Table */}
+                            <div className="hidden sm:block rounded-md border overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Hourly Rate</TableHead>
+                                    <TableHead>Actions</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {students
+                                    .filter(student =>
+                                      student.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
+                                      (student.email && student.email.toLowerCase().includes(studentSearchQuery.toLowerCase()))
+                                    )
+                                    .map(student => (
+                                      <TableRow key={student.id}>
+                                        <TableCell className="font-medium">{student.name}</TableCell>
+                                        <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                                        <TableCell>
+                                          <div className="flex gap-2">
+                                            <Dialog>
+                                              <DialogTrigger asChild>
+                                                <Button variant="outline" size="sm" onClick={() => setEditingStudent(student)}>
+                                                  Edit
+                                                </Button>
+                                              </DialogTrigger>
+                                              <DialogContent>
+                                                <DialogHeader>
+                                                  <DialogTitle>Edit Student</DialogTitle>
+                                                </DialogHeader>
+                                                <div className="grid gap-4 py-4">
+                                                  <div className="grid grid-cols-4 items-center gap-4">
+                                                    <Label htmlFor="editStudentName" className="text-right">Name</Label>
+                                                    <Input
+                                                      id="editStudentName"
+                                                      value={editingStudent?.name || ''}
+                                                      onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                                                      className="col-span-3"
+                                                    />
+                                                  </div>
+                                                  <div className="grid grid-cols-4 items-center gap-4">
+                                                    <Label htmlFor="editStudentHourlyRate" className="text-right">Hourly Rate (RM)</Label>
+                                                    <Input
+                                                      id="editStudentHourlyRate"
+                                                      type="number"
+                                                      min="0"
+                                                      step="0.01"
+                                                      value={editingStudent?.hourlyRate || ''}
+                                                      onChange={(e) => setEditingStudent({ ...editingStudent, hourlyRate: e.target.value })}
+                                                      className="col-span-3"
+                                                    />
+                                                  </div>
+                                                </div>
+                                                <DialogFooter>
+                                                  <Button type="submit" onClick={handleUpdateStudent}>Save Changes</Button>
+                                                </DialogFooter>
+                                              </DialogContent>
+                                            </Dialog>
+                                            <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)}>
+                                              Delete
+                                            </Button>
                                           </div>
-                                          <DialogFooter>
-                                            <Button type="submit" onClick={handleUpdateStudent}>Save Changes</Button>
-                                          </DialogFooter>
-                                        </DialogContent>
-                                      </Dialog>
-                                      <Button variant="destructive" size="sm" onClick={() => handleDeleteStudent(student.id)}>
-                                        Delete
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
                   </CardContent>
@@ -1364,30 +1435,41 @@ export default function TeacherHomepage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg sm:text-xl">Invoice Management</CardTitle>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mt-4">
-                      <div className="w-full sm:w-auto">
-                        <Label htmlFor="invoiceMonth" className="text-sm mb-2 block">Month:</Label>
+                    <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 mt-4">
+                      <div className="w-full sm:flex-1">
+                        <Label className="text-sm mb-2 block">Search Students</Label>
                         <Input
-                          type="number"
-                          id="invoiceMonth"
-                          value={invoiceMonth}
-                          onChange={(e) => setInvoiceMonth(parseInt(e.target.value))}
-                          min="1"
-                          max="12"
-                          className="w-full sm:w-24 h-12"
+                          placeholder="Search by name..."
+                          value={invoiceSearchQuery}
+                          onChange={(e) => setInvoiceSearchQuery(e.target.value)}
+                          className="h-12 w-full"
                         />
                       </div>
-                      <div className="w-full sm:w-auto">
-                        <Label htmlFor="invoiceYear" className="text-sm mb-2 block">Year:</Label>
-                        <Input
-                          type="number"
-                          id="invoiceYear"
-                          value={invoiceYear}
-                          onChange={(e) => setInvoiceYear(parseInt(e.target.value))}
-                          min="2000"
-                          max="2100"
-                          className="w-full sm:w-28 h-12"
-                        />
+                      <div className="flex gap-2 w-full sm:w-auto">
+                        <div className="w-1/2 sm:w-auto">
+                          <Label htmlFor="invoiceMonth" className="text-sm mb-2 block">Month</Label>
+                          <Input
+                            type="number"
+                            id="invoiceMonth"
+                            value={invoiceMonth}
+                            onChange={(e) => setInvoiceMonth(parseInt(e.target.value))}
+                            min="1"
+                            max="12"
+                            className="w-full sm:w-24 h-12"
+                          />
+                        </div>
+                        <div className="w-1/2 sm:w-auto">
+                          <Label htmlFor="invoiceYear" className="text-sm mb-2 block">Year</Label>
+                          <Input
+                            type="number"
+                            id="invoiceYear"
+                            value={invoiceYear}
+                            onChange={(e) => setInvoiceYear(parseInt(e.target.value))}
+                            min="2000"
+                            max="2100"
+                            className="w-full sm:w-28 h-12"
+                          />
+                        </div>
                       </div>
                     </div>
                   </CardHeader>
@@ -1403,51 +1485,69 @@ export default function TeacherHomepage() {
                           </div>
                         ) : (
                           <>
-                            {/* Mobile: Card layout */}
-                            <div className="block sm:hidden space-y-3">
-                              {students.map(student => (
-                                <Card key={student.id} className="border">
-                                  <CardContent className="p-4">
-                                    <div className="flex justify-between items-start mb-3">
-                                      <div className="flex-1">
-                                        <h4 className="font-semibold text-base">{student.name}</h4>
-                                        <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
-                                      </div>
-                                    </div>
-                                    <Button size="sm" onClick={() => handleGenerateInvoice(student.id)} className="w-full h-12">
-                                      <FileText className="w-4 h-4 mr-2" />
-                                      Generate Invoice
-                                    </Button>
-                                  </CardContent>
-                                </Card>
-                              ))}
-                            </div>
+                            {students.filter(student =>
+                              student.name.toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                            ).length === 0 ? (
+                              <div className="text-center py-8 text-gray-500">
+                                <p className="text-sm sm:text-base">No students found matching "{invoiceSearchQuery}"</p>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Mobile: Card layout */}
+                                <div className="block sm:hidden space-y-3">
+                                  {students
+                                    .filter(student =>
+                                      student.name.toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                                    )
+                                    .map(student => (
+                                      <Card key={student.id} className="border">
+                                        <CardContent className="p-4">
+                                          <div className="flex justify-between items-start mb-3">
+                                            <div className="flex-1">
+                                              <h4 className="font-semibold text-base">{student.name}</h4>
+                                              <p className="text-sm text-gray-600 mt-1">RM{student.hourlyRate || 35}/hr</p>
+                                            </div>
+                                          </div>
+                                          <Button size="sm" onClick={() => handleGenerateInvoice(student.id)} className="w-full h-12">
+                                            <FileText className="w-4 h-4 mr-2" />
+                                            Generate Invoice
+                                          </Button>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                </div>
 
-                            {/* Desktop: Table */}
-                            <div className="hidden sm:block rounded-md border overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Student Name</TableHead>
-                                    <TableHead>Hourly Rate</TableHead>
-                                    <TableHead>Actions</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {students.map(student => (
-                                    <TableRow key={student.id}>
-                                      <TableCell className="font-medium">{student.name}</TableCell>
-                                      <TableCell>RM{student.hourlyRate || 35}</TableCell>
-                                      <TableCell>
-                                        <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>
-                                          Generate Invoice
-                                        </Button>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
+                                {/* Desktop: Table */}
+                                <div className="hidden sm:block rounded-md border overflow-x-auto">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Student Name</TableHead>
+                                        <TableHead>Hourly Rate</TableHead>
+                                        <TableHead>Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {students
+                                        .filter(student =>
+                                          student.name.toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                                        )
+                                        .map(student => (
+                                          <TableRow key={student.id}>
+                                            <TableCell className="font-medium">{student.name}</TableCell>
+                                            <TableCell>RM{student.hourlyRate || 35}</TableCell>
+                                            <TableCell>
+                                              <Button size="sm" onClick={() => handleGenerateInvoice(student.id)}>
+                                                Generate Invoice
+                                              </Button>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              </>
+                            )}
                           </>
                         )}
                       </div>
@@ -1467,67 +1567,85 @@ export default function TeacherHomepage() {
                           </div>
                         ) : (
                           <>
-                            {/* Mobile: Card layout */}
-                            <div className="block sm:hidden space-y-3">
-                              {invoices.map(invoice => (
-                                <Card key={invoice.id} className="border">
-                                  <CardContent className="p-4">
-                                    <div className="space-y-2 mb-3">
-                                      <h4 className="font-semibold text-base">{getStudentName(invoice.studentId)}</h4>
-                                      <div className="grid grid-cols-2 gap-2 text-sm">
-                                        <div>
-                                          <span className="text-gray-600">Period:</span>
-                                          <p className="font-medium">{invoice.month}/{invoice.year}</p>
-                                        </div>
-                                        <div>
-                                          <span className="text-gray-600">Amount:</span>
-                                          <p className="font-medium">RM{invoice.amount}</p>
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-600 text-sm">Status:</span>
-                                        <p className="font-medium capitalize text-sm">{invoice.status}</p>
-                                      </div>
-                                    </div>
-                                    <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)} className="w-full h-12">
-                                      Delete
-                                    </Button>
-                                  </CardContent>
-                                </Card>
-                              ))}
-                            </div>
+                            {invoices.filter(invoice =>
+                              getStudentName(invoice.studentId).toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                            ).length === 0 ? (
+                              <div className="text-center py-8 text-gray-500">
+                                <p className="text-sm sm:text-base">No invoices found matching "{invoiceSearchQuery}"</p>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Mobile: Card layout */}
+                                <div className="block sm:hidden space-y-3">
+                                  {invoices
+                                    .filter(invoice =>
+                                      getStudentName(invoice.studentId).toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                                    )
+                                    .map(invoice => (
+                                      <Card key={invoice.id} className="border">
+                                        <CardContent className="p-4">
+                                          <div className="space-y-2 mb-3">
+                                            <h4 className="font-semibold text-base">{getStudentName(invoice.studentId)}</h4>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                              <div>
+                                                <span className="text-gray-600">Period:</span>
+                                                <p className="font-medium">{invoice.month}/{invoice.year}</p>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">Amount:</span>
+                                                <p className="font-medium">RM{invoice.amount}</p>
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-600 text-sm">Status:</span>
+                                              <p className="font-medium capitalize text-sm">{invoice.status}</p>
+                                            </div>
+                                          </div>
+                                          <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)} className="w-full h-12">
+                                            Delete
+                                          </Button>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                </div>
 
-                            {/* Desktop: Table */}
-                            <div className="hidden sm:block rounded-md border overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Student Name</TableHead>
-                                    <TableHead>Month</TableHead>
-                                    <TableHead>Year</TableHead>
-                                    <TableHead>Amount</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Actions</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {invoices.map(invoice => (
-                                    <TableRow key={invoice.id}>
-                                      <TableCell>{getStudentName(invoice.studentId)}</TableCell>
-                                      <TableCell>{invoice.month}</TableCell>
-                                      <TableCell>{invoice.year}</TableCell>
-                                      <TableCell>RM{invoice.amount}</TableCell>
-                                      <TableCell className="capitalize">{invoice.status}</TableCell>
-                                      <TableCell>
-                                        <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)}>
-                                          Delete
-                                        </Button>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
+                                {/* Desktop: Table */}
+                                <div className="hidden sm:block rounded-md border overflow-x-auto">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Student Name</TableHead>
+                                        <TableHead>Month</TableHead>
+                                        <TableHead>Year</TableHead>
+                                        <TableHead>Amount</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {invoices
+                                        .filter(invoice =>
+                                          getStudentName(invoice.studentId).toLowerCase().includes(invoiceSearchQuery.toLowerCase())
+                                        )
+                                        .map(invoice => (
+                                          <TableRow key={invoice.id}>
+                                            <TableCell>{getStudentName(invoice.studentId)}</TableCell>
+                                            <TableCell>{invoice.month}</TableCell>
+                                            <TableCell>{invoice.year}</TableCell>
+                                            <TableCell>RM{invoice.amount}</TableCell>
+                                            <TableCell className="capitalize">{invoice.status}</TableCell>
+                                            <TableCell>
+                                              <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice.id)}>
+                                                Delete
+                                              </Button>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              </>
+                            )}
                           </>
                         )}
                       </div>

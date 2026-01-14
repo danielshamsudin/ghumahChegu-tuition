@@ -1,0 +1,1439 @@
+commit 663cc547485b2e390cb27fdd6c58cf85081ed40b
+Author: Daniel Shamsudin <daniel.shamsudin@outlook.com>
+Date:   Tue Dec 30 05:20:44 2025 +0800
+
+    revamped invoice generation
+
+diff --git a/src/app/superadmin/page.js b/src/app/superadmin/page.js
+index 15af50d..26ff7c9 100644
+--- a/src/app/superadmin/page.js
++++ b/src/app/superadmin/page.js
+@@ -12,10 +12,12 @@ import { Input } from '../../components/ui/input';
+ import { Label } from '../../components/ui/label';
+ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../../components/ui/dialog';
+-import { Users, BookOpen, UserPlus, Settings, Calendar, Trash2 } from 'lucide-react';
++import { Users, BookOpen, UserPlus, Settings, Calendar, Trash2, FileText } from 'lucide-react';
+ import { usePullToRefresh } from '../../hooks/usePullToRefresh';
+ import { PullToRefreshContainer } from '../../components/PullToRefresh';
+ import { BottomNav } from '../../components/BottomNav';
++import { jsPDF } from 'jspdf';
++import autoTable from 'jspdf-autotable';
+ 
+ export default function SuperadminPage() {
+   const { currentUser, userRole, loading } = useAuth();
+@@ -57,6 +59,12 @@ export default function SuperadminPage() {
+   const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] = useState('');
+   const [subjectAssignments, setSubjectAssignments] = useState([]);
+ 
++  // Consolidated Invoice State
++  const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
++  const [invoiceMonth, setInvoiceMonth] = useState(new Date().getMonth() + 1);
++  const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
++  const [selectedStudentsForInvoice, setSelectedStudentsForInvoice] = useState([]);
++
+   useEffect(() => {
+     if (!loading) {
+       if (!currentUser || userRole !== 'superadmin') {
+@@ -322,600 +330,869 @@ export default function SuperadminPage() {
+     return sortedDays.map(day => getDayName(day)).join(', ');
+   };
+ 
++  const handleGenerateConsolidatedInvoice = async () => {
++    if (selectedStudentsForInvoice.length === 0) {
++      showMessage('Please select at least one student.', 'error');
++      return;
++    }
++
++    try {
++      const consolidatedData = [];
++      let grandTotal = 0;
++      const studentNames = [];
++
++      // 1. Gather all attendance records
++      for (const studentId of selectedStudentsForInvoice) {
++        const student = students.find(s => s.id === studentId);
++        if (!student) continue;
++        studentNames.push(student.name);
++
++        const attendanceQuery = query(collection(db, 'attendance'),
++          where('studentId', '==', studentId),
++          where('status', '==', 'present'),
++          where('date', '>=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-01`),
++          where('date', '<=', `${invoiceYear}-${String(invoiceMonth).padStart(2, '0')}-31`)
++        );
++
++        const attendanceSnapshot = await getDocs(attendanceQuery);
++
++        // Group by Subject
++        const studentAttendanceBySubject = {};
++        attendanceSnapshot.docs.forEach(d => {
++          const data = d.data();
++          const subjectId = data.subjectId;
++          if (!studentAttendanceBySubject[subjectId]) {
++            studentAttendanceBySubject[subjectId] = { count: 0, subjectId };
++          }
++          studentAttendanceBySubject[subjectId].count++;
++        });
++
++        // Resolve details
++        for (const subjectId in studentAttendanceBySubject) {
++          const subject = subjects.find(s => s.id === subjectId);
++          const teacherForThisRecord = teachers.find(t => t.id === student.teacherId);
++
++          const sessionCount = studentAttendanceBySubject[subjectId].count;
++          const rate = student.hourlyRate || 35;
++          const subtotal = sessionCount * rate;
++          grandTotal += subtotal;
++
++          consolidatedData.push({
++            studentName: student.name,
++            teacherName: teacherForThisRecord?.email || 'Unknown',
++            subjectName: subject ? subject.name : 'Unknown Subject',
++            sessions: sessionCount,
++            rate: rate,
++            subtotal: subtotal
++          });
++        }
++      }
++
++      if (consolidatedData.length === 0) {
++        showMessage('No attendance records found for selected students in this period.', 'warning');
++        return;
++      }
++
++      // Helper to load images
++      const loadImage = (src) => {
++        return new Promise((resolve, reject) => {
++          const img = new Image();
++          img.src = src;
++          img.onload = () => resolve(img);
++          img.onerror = reject;
++        });
++      };
++
++      // 2. Generate PDF
++      const pdf = new jsPDF();
++
++      try {
++        const [logoImg, qrImg] = await Promise.all([
++          loadImage('/logo.jpeg'),
++          loadImage('/qr.png')
++        ]);
++
++        // Add Logo (Top Right)
++        pdf.addImage(logoImg, 'JPEG', 150, 10, 40, 40);
++      } catch (err) {
++        console.warn("Could not load images:", err);
++      }
++
++      pdf.setFontSize(20);
++      pdf.text('INVOICE', 105, 20, { align: 'center' });
++
++      pdf.setFontSize(12);
++      const consolidatedStudentName = [...new Set(studentNames)][0];
++      pdf.text(`Student: ${consolidatedStudentName}`, 20, 35);
++      pdf.text(`Period: ${String(invoiceMonth).padStart(2, '0')}/${invoiceYear}`, 20, 42);
++      pdf.text(`Date: ${new Date().toLocaleDateString()}`, 20, 49);
++
++      const tableData = consolidatedData.map(item => [
++        item.subjectName,
++        item.sessions,
++        `RM ${item.rate.toFixed(2)}`,
++        `RM ${item.subtotal.toFixed(2)}`
++      ]);
++
++      autoTable(pdf, {
++        startY: 60,
++        head: [['Subject', 'Sessions', 'Rate', 'Subtotal']],
++        body: tableData,
++        theme: 'striped',
++        headStyles: { fillColor: [59, 130, 246] },
++        columnStyles: {
++          0: { cellWidth: 80 },
++          1: { cellWidth: 30, halign: 'center' },
++          2: { cellWidth: 35, halign: 'right' },
++          3: { cellWidth: 35, halign: 'right' }
++        }
++      });
++
++      const finalY = pdf.lastAutoTable?.finalY || 60;
++      pdf.setFontSize(12);
++      pdf.setFont(undefined, 'bold');
++      pdf.text(`Grand Total: RM ${grandTotal.toFixed(2)}`, 190, finalY + 15, { align: 'right' });
++
++      // Add QR Code and Payment Info
++      try {
++        const qrImg = await loadImage('/qr.png');
++        pdf.addImage(qrImg, 'PNG', 20, finalY + 30, 40, 40);
++        pdf.setFontSize(10);
++        pdf.setFont(undefined, 'normal');
++        pdf.text("Scan to Pay", 20, finalY + 25);
++      } catch (e) {
++        // Ignore if QR load fails
++      }
++
++      // Signature Line
++      pdf.line(140, finalY + 50, 190, finalY + 50);
++      pdf.text("Teacher Signature", 165, finalY + 55, { align: 'center' });
++
++      // Save PDF
++      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++      const monthName = monthNames[invoiceMonth - 1];
++      const fileName = `${consolidatedStudentName.replace(/\s+/g, '_')}_${monthName}${invoiceYear}_Consolidated.pdf`;
++      pdf.save(fileName);
++
++      // 3. Save to Firestore
++      await addDoc(collection(db, 'invoices'), {
++        studentId: 'CONSOLIDATED',
++        teacherId: 'superadmin',
++        month: invoiceMonth,
++        year: invoiceYear,
++        amount: grandTotal,
++        status: 'generated',
++        generatedAt: new Date(),
++        details: {
++          breakdown: consolidatedData,
++          studentIds: selectedStudentsForInvoice
++        },
++        description: `Consolidated Invoice for: ${[...new Set(studentNames)].join(', ')}`
++      });
++
++      showMessage('Consolidated invoice generated successfully!');
++      setSelectedStudentsForInvoice([]);
++
++    } catch (error) {
++      console.error("Error generating consolidated invoice:", error);
++      showMessage(`Failed: ${error.message}`, 'error');
++    }
++  };
++
+   if (loading || !currentUser || userRole !== 'superadmin') {
+     return <div className="min-h-screen flex items-center justify-center">Loading or unauthorized...</div>;
+   }
+ 
+   return (
+     <>
+-    <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
+-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-8">
+-        <div className="max-w-7xl mx-auto">
+-        <div className="mb-4 sm:mb-6">
+-          <div className="flex items-center gap-3 mb-2">
+-            <img src="/logo.jpeg" alt="CLG Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
+-            <h1 className="text-2xl sm:text-3xl font-bold">CLG, Chegu Learning Centre</h1>
+-          </div>
+-          <p className="text-sm sm:text-base text-gray-600">Superadmin Dashboard - Manage users, classes, students, and assignments</p>
+-        </div>
+-
+-        {message && (
+-          <div className={`mb-4 p-3 sm:p-4 rounded text-sm sm:text-base ${messageType === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+-            {message}
+-          </div>
+-        )}
+-
+-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
+-            <TabsTrigger value="users" className="text-xs sm:text-sm">
+-              <Users className="w-4 h-4 sm:mr-2" />
+-              <span className="hidden sm:inline">Users</span>
+-            </TabsTrigger>
+-            <TabsTrigger value="classes" className="text-xs sm:text-sm">
+-              <BookOpen className="w-4 h-4 sm:mr-2" />
+-              <span className="hidden sm:inline">Classes</span>
+-            </TabsTrigger>
+-            <TabsTrigger value="students" className="text-xs sm:text-sm">
+-              <UserPlus className="w-4 h-4 sm:mr-2" />
+-              <span className="hidden sm:inline">Students</span>
+-            </TabsTrigger>
+-            <TabsTrigger value="assignments" className="text-xs sm:text-sm">
+-              <Calendar className="w-4 h-4 sm:mr-2" />
+-              <span className="hidden sm:inline">Assign</span>
+-            </TabsTrigger>
+-          </TabsList>
+-
+-          {/* User Management Tab */}
+-          <TabsContent value="users">
+-            <Card>
+-              <CardHeader>
+-                <CardTitle className="text-lg sm:text-xl">User Management</CardTitle>
+-              </CardHeader>
+-              <CardContent>
+-                {/* Mobile Card Layout */}
+-                <div className="sm:hidden space-y-3">
+-                  {users.map(user => (
+-                    <div key={user.id} className="border rounded-lg p-4 bg-white">
+-                      <div className="space-y-3">
+-                        <div>
+-                          <div className="text-xs text-gray-500 mb-1">Email</div>
+-                          <div className="text-sm font-medium truncate">{user.email}</div>
+-                        </div>
+-                        <div>
+-                          <div className="text-xs text-gray-500 mb-1">Role</div>
+-                          <select
+-                            value={user.role}
+-                            onChange={(e) => handleRoleChange(user.id, e.target.value)}
+-                            className="w-full border rounded px-3 py-2.5 text-sm capitalize"
+-                          >
+-                            <option value="student">Student</option>
+-                            <option value="teacher">Teacher</option>
+-                            <option value="superadmin">Superadmin</option>
+-                          </select>
+-                        </div>
+-                      </div>
+-                    </div>
+-                  ))}
+-                </div>
+-
+-                {/* Desktop Table Layout */}
+-                <div className="hidden sm:block overflow-x-auto">
+-                  <Table>
+-                    <TableHeader>
+-                      <TableRow>
+-                        <TableHead>Email</TableHead>
+-                        <TableHead>Role</TableHead>
+-                        <TableHead>Actions</TableHead>
+-                      </TableRow>
+-                    </TableHeader>
+-                    <TableBody>
++      <PullToRefreshContainer containerRef={containerRef} pullState={pullState}>
++        <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-8">
++          <div className="max-w-7xl mx-auto">
++            <div className="mb-4 sm:mb-6">
++              <div className="flex items-center gap-3 mb-2">
++                <img src="/logo.jpeg" alt="CLC Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
++                <h1 className="text-2xl sm:text-3xl font-bold">CLC, Chegu Learning Centre</h1>
++              </div>
++              <p className="text-sm sm:text-base text-gray-600">Superadmin Dashboard - Manage users, classes, students, and assignments</p>
++            </div>
++
++            {message && (
++              <div className={`mb-4 p-3 sm:p-4 rounded text-sm sm:text-base ${messageType === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
++                {message}
++              </div>
++            )}
++
++            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
++              <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 gap-1">
++                <TabsTrigger value="users" className="text-xs sm:text-sm">
++                  <Users className="w-4 h-4 sm:mr-2" />
++                  <span className="hidden sm:inline">Users</span>
++                </TabsTrigger>
++                <TabsTrigger value="classes" className="text-xs sm:text-sm">
++                  <BookOpen className="w-4 h-4 sm:mr-2" />
++                  <span className="hidden sm:inline">Classes</span>
++                </TabsTrigger>
++                <TabsTrigger value="students" className="text-xs sm:text-sm">
++                  <UserPlus className="w-4 h-4 sm:mr-2" />
++                  <span className="hidden sm:inline">Students</span>
++                </TabsTrigger>
++                <TabsTrigger value="assignments" className="text-xs sm:text-sm">
++                  <Calendar className="w-4 h-4 sm:mr-2" />
++                  <span className="hidden sm:inline">Assign</span>
++                </TabsTrigger>
++                <TabsTrigger value="invoices" className="text-xs sm:text-sm">
++                  <FileText className="w-4 h-4 sm:mr-2" />
++                  <span className="hidden sm:inline">Invoices</span>
++                </TabsTrigger>
++              </TabsList>
++
++              {/* User Management Tab */}
++              <TabsContent value="users">
++                <Card>
++                  <CardHeader>
++                    <CardTitle className="text-lg sm:text-xl">User Management</CardTitle>
++                  </CardHeader>
++                  <CardContent>
++                    {/* Mobile Card Layout */}
++                    <div className="sm:hidden space-y-3">
+                       {users.map(user => (
+-                        <TableRow key={user.id}>
+-                          <TableCell className="max-w-xs truncate">{user.email}</TableCell>
+-                          <TableCell className="capitalize">{user.role}</TableCell>
+-                          <TableCell>
+-                            <select
+-                              value={user.role}
+-                              onChange={(e) => handleRoleChange(user.id, e.target.value)}
+-                              className="border rounded px-3 py-2 text-sm"
+-                            >
+-                              <option value="student">Student</option>
+-                              <option value="teacher">Teacher</option>
+-                              <option value="superadmin">Superadmin</option>
+-                            </select>
+-                          </TableCell>
+-                        </TableRow>
+-                      ))}
+-                    </TableBody>
+-                  </Table>
+-                </div>
+-              </CardContent>
+-            </Card>
+-          </TabsContent>
+-
+-          {/* Classes Tab */}
+-          <TabsContent value="classes">
+-            <Card>
+-              <CardHeader>
+-                <CardTitle className="text-lg sm:text-xl">Create Class for Teacher</CardTitle>
+-              </CardHeader>
+-              <CardContent>
+-                <div className="space-y-4">
+-                  <div>
+-                    <Label className="text-sm">Select Teacher</Label>
+-                    <select
+-                      value={selectedTeacherForClass}
+-                      onChange={(e) => setSelectedTeacherForClass(e.target.value)}
+-                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+-                    >
+-                      <option value="">Select a teacher</option>
+-                      {teachers.map(teacher => (
+-                        <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
++                        <div key={user.id} className="border rounded-lg p-4 bg-white">
++                          <div className="space-y-3">
++                            <div>
++                              <div className="text-xs text-gray-500 mb-1">Email</div>
++                              <div className="text-sm font-medium truncate">{user.email}</div>
++                            </div>
++                            <div>
++                              <div className="text-xs text-gray-500 mb-1">Role</div>
++                              <select
++                                value={user.role}
++                                onChange={(e) => handleRoleChange(user.id, e.target.value)}
++                                className="w-full border rounded px-3 py-2.5 text-sm capitalize"
++                              >
++                                <option value="student">Student</option>
++                                <option value="teacher">Teacher</option>
++                                <option value="superadmin">Superadmin</option>
++                              </select>
++                            </div>
++                          </div>
++                        </div>
+                       ))}
+-                    </select>
+-                  </div>
+-
+-                  <div>
+-                    <Label className="text-sm">Subject Name</Label>
+-                    <Input
+-                      value={newSubject.name}
+-                      onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
+-                      placeholder="e.g., Mathematics"
+-                      className="h-12 mt-1.5"
+-                    />
+-                  </div>
+-
+-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+-                    <div>
+-                      <Label className="text-sm">Start Time</Label>
+-                      <Input
+-                        type="time"
+-                        value={newSubject.startTime}
+-                        onChange={(e) => setNewSubject({ ...newSubject, startTime: e.target.value })}
+-                        className="h-12 mt-1.5"
+-                      />
+                     </div>
+-                    <div>
+-                      <Label className="text-sm">End Time</Label>
+-                      <Input
+-                        type="time"
+-                        value={newSubject.endTime}
+-                        onChange={(e) => setNewSubject({ ...newSubject, endTime: e.target.value })}
+-                        className="h-12 mt-1.5"
+-                      />
++
++                    {/* Desktop Table Layout */}
++                    <div className="hidden sm:block overflow-x-auto">
++                      <Table>
++                        <TableHeader>
++                          <TableRow>
++                            <TableHead>Email</TableHead>
++                            <TableHead>Role</TableHead>
++                            <TableHead>Actions</TableHead>
++                          </TableRow>
++                        </TableHeader>
++                        <TableBody>
++                          {users.map(user => (
++                            <TableRow key={user.id}>
++                              <TableCell className="max-w-xs truncate">{user.email}</TableCell>
++                              <TableCell className="capitalize">{user.role}</TableCell>
++                              <TableCell>
++                                <select
++                                  value={user.role}
++                                  onChange={(e) => handleRoleChange(user.id, e.target.value)}
++                                  className="border rounded px-3 py-2 text-sm"
++                                >
++                                  <option value="student">Student</option>
++                                  <option value="teacher">Teacher</option>
++                                  <option value="superadmin">Superadmin</option>
++                                </select>
++                              </TableCell>
++                            </TableRow>
++                          ))}
++                        </TableBody>
++                      </Table>
+                     </div>
+-                  </div>
+-
+-                  <div>
+-                    <Label className="text-sm">Schedule Type</Label>
+-                    <select
+-                      value={newSubject.recurring}
+-                      onChange={(e) => setNewSubject({ ...newSubject, recurring: e.target.value })}
+-                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+-                    >
+-                      <option value="none">One-time only</option>
+-                      <option value="weekly">Weekly Recurring</option>
+-                    </select>
+-                  </div>
+-
+-                  {newSubject.recurring === 'weekly' && (
+-                    <div>
+-                      <Label className="text-sm">Days of Week</Label>
+-                      <div className="border rounded p-3 sm:p-4 space-y-2 mt-1.5">
+-                        {[
+-                          { value: 0, label: 'Sunday' },
+-                          { value: 1, label: 'Monday' },
+-                          { value: 2, label: 'Tuesday' },
+-                          { value: 3, label: 'Wednesday' },
+-                          { value: 4, label: 'Thursday' },
+-                          { value: 5, label: 'Friday' },
+-                          { value: 6, label: 'Saturday' }
+-                        ].map((day) => (
+-                          <label key={day.value} className="flex items-center space-x-3 cursor-pointer py-2 hover:bg-gray-50 rounded px-2">
+-                            <input
+-                              type="checkbox"
+-                              checked={newSubject.daysOfWeek.includes(day.value.toString())}
+-                              onChange={(e) => {
+-                                if (e.target.checked) {
+-                                  setNewSubject({
+-                                    ...newSubject,
+-                                    daysOfWeek: [...newSubject.daysOfWeek, day.value.toString()]
+-                                  });
+-                                } else {
+-                                  setNewSubject({
+-                                    ...newSubject,
+-                                    daysOfWeek: newSubject.daysOfWeek.filter(d => d !== day.value.toString())
+-                                  });
+-                                }
+-                              }}
+-                              className="w-5 h-5"
+-                            />
+-                            <span className="text-sm">{day.label}</span>
+-                          </label>
+-                        ))}
++                  </CardContent>
++                </Card>
++              </TabsContent>
++
++              {/* Classes Tab */}
++              <TabsContent value="classes">
++                <Card>
++                  <CardHeader>
++                    <CardTitle className="text-lg sm:text-xl">Create Class for Teacher</CardTitle>
++                  </CardHeader>
++                  <CardContent>
++                    <div className="space-y-4">
++                      <div>
++                        <Label className="text-sm">Select Teacher</Label>
++                        <select
++                          value={selectedTeacherForClass}
++                          onChange={(e) => setSelectedTeacherForClass(e.target.value)}
++                          className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
++                        >
++                          <option value="">Select a teacher</option>
++                          {teachers.map(teacher => (
++                            <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
++                          ))}
++                        </select>
+                       </div>
+-                    </div>
+-                  )}
+-
+-                  {newSubject.recurring === 'none' && (
+-                    <div>
+-                      <Label className="text-sm">Date</Label>
+-                      <Input
+-                        type="date"
+-                        value={newSubject.date}
+-                        onChange={(e) => setNewSubject({ ...newSubject, date: e.target.value })}
+-                        className="h-12 mt-1.5"
+-                      />
+-                    </div>
+-                  )}
+ 
+-                  <Button onClick={handleCreateClass} className="w-full sm:w-auto h-12">Create Class</Button>
+-                </div>
++                      <div>
++                        <Label className="text-sm">Subject Name</Label>
++                        <Input
++                          value={newSubject.name}
++                          onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
++                          placeholder="e.g., Mathematics"
++                          className="h-12 mt-1.5"
++                        />
++                      </div>
+ 
+-                <div className="mt-8">
+-                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Classes</h3>
++                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
++                        <div>
++                          <Label className="text-sm">Start Time</Label>
++                          <Input
++                            type="time"
++                            value={newSubject.startTime}
++                            onChange={(e) => setNewSubject({ ...newSubject, startTime: e.target.value })}
++                            className="h-12 mt-1.5"
++                          />
++                        </div>
++                        <div>
++                          <Label className="text-sm">End Time</Label>
++                          <Input
++                            type="time"
++                            value={newSubject.endTime}
++                            onChange={(e) => setNewSubject({ ...newSubject, endTime: e.target.value })}
++                            className="h-12 mt-1.5"
++                          />
++                        </div>
++                      </div>
+ 
+-                  {/* Mobile Card Layout */}
+-                  <div className="sm:hidden space-y-3">
+-                    {subjects.map(subject => {
+-                      const teacher = teachers.find(t => t.id === subject.teacherId);
+-                      return (
+-                        <div key={subject.id} className="border rounded-lg p-4 bg-white">
+-                          <div className="space-y-2">
+-                            <div>
+-                              <div className="text-xs text-gray-500">Teacher</div>
+-                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Subject</div>
+-                              <div className="text-sm font-medium">{subject.name}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Time</div>
+-                              <div className="text-sm">{subject.startTime} - {subject.endTime}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Schedule</div>
+-                              <div className="text-sm">
+-                                {subject.recurring === 'weekly'
+-                                  ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+-                                      ? formatDaysOfWeek(subject.daysOfWeek)
+-                                      : getDayName(subject.dayOfWeek)}`
+-                                  : `One-time: ${subject.date}`}
+-                              </div>
+-                            </div>
+-                            <Button
+-                              variant="destructive"
+-                              size="sm"
+-                              onClick={() => handleDeleteClass(subject.id)}
+-                              className="w-full mt-2 h-12"
+-                            >
+-                              <Trash2 className="w-4 h-4 mr-2" />
+-                              Delete
+-                            </Button>
++                      <div>
++                        <Label className="text-sm">Schedule Type</Label>
++                        <select
++                          value={newSubject.recurring}
++                          onChange={(e) => setNewSubject({ ...newSubject, recurring: e.target.value })}
++                          className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
++                        >
++                          <option value="none">One-time only</option>
++                          <option value="weekly">Weekly Recurring</option>
++                        </select>
++                      </div>
++
++                      {newSubject.recurring === 'weekly' && (
++                        <div>
++                          <Label className="text-sm">Days of Week</Label>
++                          <div className="border rounded p-3 sm:p-4 space-y-2 mt-1.5">
++                            {[
++                              { value: 0, label: 'Sunday' },
++                              { value: 1, label: 'Monday' },
++                              { value: 2, label: 'Tuesday' },
++                              { value: 3, label: 'Wednesday' },
++                              { value: 4, label: 'Thursday' },
++                              { value: 5, label: 'Friday' },
++                              { value: 6, label: 'Saturday' }
++                            ].map((day) => (
++                              <label key={day.value} className="flex items-center space-x-3 cursor-pointer py-2 hover:bg-gray-50 rounded px-2">
++                                <input
++                                  type="checkbox"
++                                  checked={newSubject.daysOfWeek.includes(day.value.toString())}
++                                  onChange={(e) => {
++                                    if (e.target.checked) {
++                                      setNewSubject({
++                                        ...newSubject,
++                                        daysOfWeek: [...newSubject.daysOfWeek, day.value.toString()]
++                                      });
++                                    } else {
++                                      setNewSubject({
++                                        ...newSubject,
++                                        daysOfWeek: newSubject.daysOfWeek.filter(d => d !== day.value.toString())
++                                      });
++                                    }
++                                  }}
++                                  className="w-5 h-5"
++                                />
++                                <span className="text-sm">{day.label}</span>
++                              </label>
++                            ))}
+                           </div>
+                         </div>
+-                      );
+-                    })}
+-                  </div>
+-
+-                  {/* Desktop Table Layout */}
+-                  <div className="hidden sm:block overflow-x-auto">
+-                    <Table>
+-                      <TableHeader>
+-                        <TableRow>
+-                          <TableHead>Teacher</TableHead>
+-                          <TableHead>Subject</TableHead>
+-                          <TableHead>Time</TableHead>
+-                          <TableHead>Schedule</TableHead>
+-                          <TableHead>Actions</TableHead>
+-                        </TableRow>
+-                      </TableHeader>
+-                      <TableBody>
++                      )}
++
++                      {newSubject.recurring === 'none' && (
++                        <div>
++                          <Label className="text-sm">Date</Label>
++                          <Input
++                            type="date"
++                            value={newSubject.date}
++                            onChange={(e) => setNewSubject({ ...newSubject, date: e.target.value })}
++                            className="h-12 mt-1.5"
++                          />
++                        </div>
++                      )}
++
++                      <Button onClick={handleCreateClass} className="w-full sm:w-auto h-12">Create Class</Button>
++                    </div>
++
++                    <div className="mt-8">
++                      <h3 className="font-semibold mb-4 text-base sm:text-lg">All Classes</h3>
++
++                      {/* Mobile Card Layout */}
++                      <div className="sm:hidden space-y-3">
+                         {subjects.map(subject => {
+                           const teacher = teachers.find(t => t.id === subject.teacherId);
+                           return (
+-                            <TableRow key={subject.id}>
+-                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+-                              <TableCell>{subject.name}</TableCell>
+-                              <TableCell className="whitespace-nowrap">{subject.startTime} - {subject.endTime}</TableCell>
+-                              <TableCell>
+-                                {subject.recurring === 'weekly'
+-                                  ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
+-                                      ? formatDaysOfWeek(subject.daysOfWeek)
+-                                      : getDayName(subject.dayOfWeek)}`
+-                                  : `One-time: ${subject.date}`}
+-                              </TableCell>
+-                              <TableCell>
++                            <div key={subject.id} className="border rounded-lg p-4 bg-white">
++                              <div className="space-y-2">
++                                <div>
++                                  <div className="text-xs text-gray-500">Teacher</div>
++                                  <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Subject</div>
++                                  <div className="text-sm font-medium">{subject.name}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Time</div>
++                                  <div className="text-sm">{subject.startTime} - {subject.endTime}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Schedule</div>
++                                  <div className="text-sm">
++                                    {subject.recurring === 'weekly'
++                                      ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
++                                        ? formatDaysOfWeek(subject.daysOfWeek)
++                                        : getDayName(subject.dayOfWeek)}`
++                                      : `One-time: ${subject.date}`}
++                                  </div>
++                                </div>
+                                 <Button
+                                   variant="destructive"
+                                   size="sm"
+                                   onClick={() => handleDeleteClass(subject.id)}
+-                                  className="h-10"
++                                  className="w-full mt-2 h-12"
+                                 >
++                                  <Trash2 className="w-4 h-4 mr-2" />
+                                   Delete
+                                 </Button>
+-                              </TableCell>
+-                            </TableRow>
+-                          );
+-                        })}
+-                      </TableBody>
+-                    </Table>
+-                  </div>
+-                </div>
+-              </CardContent>
+-            </Card>
+-          </TabsContent>
+-
+-          {/* Students Tab */}
+-          <TabsContent value="students">
+-            <Card>
+-              <CardHeader>
+-                <CardTitle className="text-lg sm:text-xl">Add Student for Teacher</CardTitle>
+-              </CardHeader>
+-              <CardContent>
+-                <div className="space-y-4">
+-                  <div>
+-                    <Label className="text-sm">Select Teacher</Label>
+-                    <select
+-                      value={selectedTeacherForStudent}
+-                      onChange={(e) => setSelectedTeacherForStudent(e.target.value)}
+-                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+-                    >
+-                      <option value="">Select a teacher</option>
+-                      {teachers.map(teacher => (
+-                        <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
+-                      ))}
+-                    </select>
+-                  </div>
+-
+-                  <div>
+-                    <Label className="text-sm">Student Name</Label>
+-                    <Input
+-                      value={newStudent.name}
+-                      onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+-                      placeholder="Student Name"
+-                      className="h-12 mt-1.5"
+-                    />
+-                  </div>
+-
+-                  <div>
+-                    <Label className="text-sm">Email (Optional)</Label>
+-                    <Input
+-                      type="email"
+-                      value={newStudent.email}
+-                      onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
+-                      placeholder="student@example.com"
+-                      className="h-12 mt-1.5"
+-                    />
+-                  </div>
+-
+-                  <div>
+-                    <Label className="text-sm">Hourly Rate (RM)</Label>
+-                    <Input
+-                      type="number"
+-                      min="0"
+-                      step="0.01"
+-                      value={newStudent.hourlyRate}
+-                      onChange={(e) => setNewStudent({ ...newStudent, hourlyRate: e.target.value })}
+-                      className="h-12 mt-1.5"
+-                    />
+-                  </div>
+-
+-                  <Button onClick={handleCreateStudent} className="w-full sm:w-auto h-12">Add Student</Button>
+-                </div>
+-
+-                <div className="mt-8">
+-                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Students</h3>
+-
+-                  {/* Mobile Card Layout */}
+-                  <div className="sm:hidden space-y-3">
+-                    {students.map(student => {
+-                      const teacher = teachers.find(t => t.id === student.teacherId);
+-                      return (
+-                        <div key={student.id} className="border rounded-lg p-4 bg-white">
+-                          <div className="space-y-2">
+-                            <div>
+-                              <div className="text-xs text-gray-500">Teacher</div>
+-                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Student Name</div>
+-                              <div className="text-sm font-medium">{student.name}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Email</div>
+-                              <div className="text-sm truncate">{student.email || 'N/A'}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Hourly Rate</div>
+-                              <div className="text-sm font-medium">RM{student.hourlyRate || 35}</div>
++                              </div>
+                             </div>
+-                          </div>
+-                        </div>
+-                      );
+-                    })}
+-                  </div>
+-
+-                  {/* Desktop Table Layout */}
+-                  <div className="hidden sm:block overflow-x-auto">
+-                    <Table>
+-                      <TableHeader>
+-                        <TableRow>
+-                          <TableHead>Teacher</TableHead>
+-                          <TableHead>Student Name</TableHead>
+-                          <TableHead>Email</TableHead>
+-                          <TableHead>Hourly Rate</TableHead>
+-                        </TableRow>
+-                      </TableHeader>
+-                      <TableBody>
+-                        {students.map(student => {
+-                          const teacher = teachers.find(t => t.id === student.teacherId);
+-                          return (
+-                            <TableRow key={student.id}>
+-                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+-                              <TableCell>{student.name}</TableCell>
+-                              <TableCell className="max-w-xs truncate">{student.email || 'N/A'}</TableCell>
+-                              <TableCell>RM{student.hourlyRate || 35}</TableCell>
+-                            </TableRow>
+                           );
+                         })}
+-                      </TableBody>
+-                    </Table>
+-                  </div>
+-                </div>
+-              </CardContent>
+-            </Card>
+-          </TabsContent>
+-
+-          {/* Assignments Tab */}
+-          <TabsContent value="assignments">
+-            <Card>
+-              <CardHeader>
+-                <CardTitle className="text-lg sm:text-xl">Assign Student to Subject</CardTitle>
+-              </CardHeader>
+-              <CardContent>
+-                <div className="space-y-4">
+-                  <div>
+-                    <Label className="text-sm">Select Teacher</Label>
+-                    <select
+-                      value={selectedTeacherForAssignment}
+-                      onChange={(e) => setSelectedTeacherForAssignment(e.target.value)}
+-                      className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+-                    >
+-                      <option value="">Select a teacher</option>
+-                      {teachers.map(teacher => (
+-                        <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
+-                      ))}
+-                    </select>
+-                  </div>
++                      </div>
+ 
+-                  {selectedTeacherForAssignment && (
+-                    <>
++                      {/* Desktop Table Layout */}
++                      <div className="hidden sm:block overflow-x-auto">
++                        <Table>
++                          <TableHeader>
++                            <TableRow>
++                              <TableHead>Teacher</TableHead>
++                              <TableHead>Subject</TableHead>
++                              <TableHead>Time</TableHead>
++                              <TableHead>Schedule</TableHead>
++                              <TableHead>Actions</TableHead>
++                            </TableRow>
++                          </TableHeader>
++                          <TableBody>
++                            {subjects.map(subject => {
++                              const teacher = teachers.find(t => t.id === subject.teacherId);
++                              return (
++                                <TableRow key={subject.id}>
++                                  <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
++                                  <TableCell>{subject.name}</TableCell>
++                                  <TableCell className="whitespace-nowrap">{subject.startTime} - {subject.endTime}</TableCell>
++                                  <TableCell>
++                                    {subject.recurring === 'weekly'
++                                      ? `Weekly: ${subject.daysOfWeek && Array.isArray(subject.daysOfWeek)
++                                        ? formatDaysOfWeek(subject.daysOfWeek)
++                                        : getDayName(subject.dayOfWeek)}`
++                                      : `One-time: ${subject.date}`}
++                                  </TableCell>
++                                  <TableCell>
++                                    <Button
++                                      variant="destructive"
++                                      size="sm"
++                                      onClick={() => handleDeleteClass(subject.id)}
++                                      className="h-10"
++                                    >
++                                      Delete
++                                    </Button>
++                                  </TableCell>
++                                </TableRow>
++                              );
++                            })}
++                          </TableBody>
++                        </Table>
++                      </div>
++                    </div>
++                  </CardContent>
++                </Card>
++              </TabsContent>
++
++              {/* Students Tab */}
++              <TabsContent value="students">
++                <Card>
++                  <CardHeader>
++                    <CardTitle className="text-lg sm:text-xl">Add Student for Teacher</CardTitle>
++                  </CardHeader>
++                  <CardContent>
++                    <div className="space-y-4">
+                       <div>
+-                        <Label className="text-sm">Select Student</Label>
++                        <Label className="text-sm">Select Teacher</Label>
+                         <select
+-                          value={selectedStudentForAssignment}
+-                          onChange={(e) => setSelectedStudentForAssignment(e.target.value)}
++                          value={selectedTeacherForStudent}
++                          onChange={(e) => setSelectedTeacherForStudent(e.target.value)}
+                           className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+                         >
+-                          <option value="">Select a student</option>
+-                          {teacherStudents.map(student => (
+-                            <option key={student.id} value={student.id}>{student.name}</option>
++                          <option value="">Select a teacher</option>
++                          {teachers.map(teacher => (
++                            <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
+                           ))}
+                         </select>
+                       </div>
+ 
+                       <div>
+-                        <Label className="text-sm">Select Subject</Label>
++                        <Label className="text-sm">Student Name</Label>
++                        <Input
++                          value={newStudent.name}
++                          onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
++                          placeholder="Student Name"
++                          className="h-12 mt-1.5"
++                        />
++                      </div>
++
++                      <div>
++                        <Label className="text-sm">Email (Optional)</Label>
++                        <Input
++                          type="email"
++                          value={newStudent.email}
++                          onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
++                          placeholder="student@example.com"
++                          className="h-12 mt-1.5"
++                        />
++                      </div>
++
++                      <div>
++                        <Label className="text-sm">Hourly Rate (RM)</Label>
++                        <Input
++                          type="number"
++                          min="0"
++                          step="0.01"
++                          value={newStudent.hourlyRate}
++                          onChange={(e) => setNewStudent({ ...newStudent, hourlyRate: e.target.value })}
++                          className="h-12 mt-1.5"
++                        />
++                      </div>
++
++                      <Button onClick={handleCreateStudent} className="w-full sm:w-auto h-12">Add Student</Button>
++                    </div>
++
++                    <div className="mt-8">
++                      <h3 className="font-semibold mb-4 text-base sm:text-lg">All Students</h3>
++
++                      {/* Mobile Card Layout */}
++                      <div className="sm:hidden space-y-3">
++                        {students.map(student => {
++                          const teacher = teachers.find(t => t.id === student.teacherId);
++                          return (
++                            <div key={student.id} className="border rounded-lg p-4 bg-white">
++                              <div className="space-y-2">
++                                <div>
++                                  <div className="text-xs text-gray-500">Teacher</div>
++                                  <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Student Name</div>
++                                  <div className="text-sm font-medium">{student.name}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Email</div>
++                                  <div className="text-sm truncate">{student.email || 'N/A'}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Hourly Rate</div>
++                                  <div className="text-sm font-medium">RM{student.hourlyRate || 35}</div>
++                                </div>
++                              </div>
++                            </div>
++                          );
++                        })}
++                      </div>
++
++                      {/* Desktop Table Layout */}
++                      <div className="hidden sm:block overflow-x-auto">
++                        <Table>
++                          <TableHeader>
++                            <TableRow>
++                              <TableHead>Teacher</TableHead>
++                              <TableHead>Student Name</TableHead>
++                              <TableHead>Email</TableHead>
++                              <TableHead>Hourly Rate</TableHead>
++                            </TableRow>
++                          </TableHeader>
++                          <TableBody>
++                            {students.map(student => {
++                              const teacher = teachers.find(t => t.id === student.teacherId);
++                              return (
++                                <TableRow key={student.id}>
++                                  <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
++                                  <TableCell>{student.name}</TableCell>
++                                  <TableCell className="max-w-xs truncate">{student.email || 'N/A'}</TableCell>
++                                  <TableCell>RM{student.hourlyRate || 35}</TableCell>
++                                </TableRow>
++                              );
++                            })}
++                          </TableBody>
++                        </Table>
++                      </div>
++                    </div>
++                  </CardContent>
++                </Card>
++              </TabsContent>
++
++              {/* Assignments Tab */}
++              <TabsContent value="assignments">
++                <Card>
++                  <CardHeader>
++                    <CardTitle className="text-lg sm:text-xl">Assign Student to Subject</CardTitle>
++                  </CardHeader>
++                  <CardContent>
++                    <div className="space-y-4">
++                      <div>
++                        <Label className="text-sm">Select Teacher</Label>
+                         <select
+-                          value={selectedSubjectForAssignment}
+-                          onChange={(e) => setSelectedSubjectForAssignment(e.target.value)}
++                          value={selectedTeacherForAssignment}
++                          onChange={(e) => setSelectedTeacherForAssignment(e.target.value)}
+                           className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+                         >
+-                          <option value="">Select a subject</option>
+-                          {teacherSubjects.map(subject => (
+-                            <option key={subject.id} value={subject.id}>
+-                              {subject.name} ({subject.startTime} - {subject.endTime})
+-                            </option>
++                          <option value="">Select a teacher</option>
++                          {teachers.map(teacher => (
++                            <option key={teacher.id} value={teacher.id}>{teacher.email}</option>
+                           ))}
+                         </select>
+                       </div>
+ 
+-                      <Button onClick={handleAssignStudentToSubject} className="w-full sm:w-auto h-12">
+-                        Assign Student to Subject
+-                      </Button>
+-                    </>
+-                  )}
+-                </div>
+-
+-                <div className="mt-8">
+-                  <h3 className="font-semibold mb-4 text-base sm:text-lg">All Assignments</h3>
+-
+-                  {/* Mobile Card Layout */}
+-                  <div className="sm:hidden space-y-3">
+-                    {subjectAssignments.map(assignment => {
+-                      const teacher = teachers.find(t => t.id === assignment.teacherId);
+-                      const student = students.find(s => s.id === assignment.studentId);
+-                      const subject = subjects.find(s => s.id === assignment.subjectId);
+-                      return (
+-                        <div key={assignment.id} className="border rounded-lg p-4 bg-white">
+-                          <div className="space-y-2">
+-                            <div>
+-                              <div className="text-xs text-gray-500">Teacher</div>
+-                              <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Student</div>
+-                              <div className="text-sm font-medium">{student?.name || 'Unknown'}</div>
+-                            </div>
+-                            <div>
+-                              <div className="text-xs text-gray-500">Subject</div>
+-                              <div className="text-sm">{subject?.name || 'Unknown'}</div>
+-                            </div>
+-                            <Button
+-                              variant="destructive"
+-                              size="sm"
+-                              onClick={() => handleDeleteAssignment(assignment.id)}
+-                              className="w-full mt-2 h-12"
++                      {selectedTeacherForAssignment && (
++                        <>
++                          <div>
++                            <Label className="text-sm">Select Student</Label>
++                            <select
++                              value={selectedStudentForAssignment}
++                              onChange={(e) => setSelectedStudentForAssignment(e.target.value)}
++                              className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
+                             >
+-                              <Trash2 className="w-4 h-4 mr-2" />
+-                              Remove
+-                            </Button>
++                              <option value="">Select a student</option>
++                              {teacherStudents.map(student => (
++                                <option key={student.id} value={student.id}>{student.name}</option>
++                              ))}
++                            </select>
+                           </div>
+-                        </div>
+-                      );
+-                    })}
+-                  </div>
+-
+-                  {/* Desktop Table Layout */}
+-                  <div className="hidden sm:block overflow-x-auto">
+-                    <Table>
+-                      <TableHeader>
+-                        <TableRow>
+-                          <TableHead>Teacher</TableHead>
+-                          <TableHead>Student</TableHead>
+-                          <TableHead>Subject</TableHead>
+-                          <TableHead>Actions</TableHead>
+-                        </TableRow>
+-                      </TableHeader>
+-                      <TableBody>
++
++                          <div>
++                            <Label className="text-sm">Select Subject</Label>
++                            <select
++                              value={selectedSubjectForAssignment}
++                              onChange={(e) => setSelectedSubjectForAssignment(e.target.value)}
++                              className="w-full border rounded px-3 py-3 mt-1.5 text-sm"
++                            >
++                              <option value="">Select a subject</option>
++                              {teacherSubjects.map(subject => (
++                                <option key={subject.id} value={subject.id}>
++                                  {subject.name} ({subject.startTime} - {subject.endTime})
++                                </option>
++                              ))}
++                            </select>
++                          </div>
++
++                          <Button onClick={handleAssignStudentToSubject} className="w-full sm:w-auto h-12">
++                            Assign Student to Subject
++                          </Button>
++                        </>
++                      )}
++                    </div>
++
++                    <div className="mt-8">
++                      <h3 className="font-semibold mb-4 text-base sm:text-lg">All Assignments</h3>
++
++                      {/* Mobile Card Layout */}
++                      <div className="sm:hidden space-y-3">
+                         {subjectAssignments.map(assignment => {
+                           const teacher = teachers.find(t => t.id === assignment.teacherId);
+                           const student = students.find(s => s.id === assignment.studentId);
+                           const subject = subjects.find(s => s.id === assignment.subjectId);
+                           return (
+-                            <TableRow key={assignment.id}>
+-                              <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
+-                              <TableCell>{student?.name || 'Unknown'}</TableCell>
+-                              <TableCell>{subject?.name || 'Unknown'}</TableCell>
+-                              <TableCell>
++                            <div key={assignment.id} className="border rounded-lg p-4 bg-white">
++                              <div className="space-y-2">
++                                <div>
++                                  <div className="text-xs text-gray-500">Teacher</div>
++                                  <div className="text-sm font-medium truncate">{teacher?.email || 'Unknown'}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Student</div>
++                                  <div className="text-sm font-medium">{student?.name || 'Unknown'}</div>
++                                </div>
++                                <div>
++                                  <div className="text-xs text-gray-500">Subject</div>
++                                  <div className="text-sm">{subject?.name || 'Unknown'}</div>
++                                </div>
+                                 <Button
+                                   variant="destructive"
+                                   size="sm"
+                                   onClick={() => handleDeleteAssignment(assignment.id)}
+-                                  className="h-10"
++                                  className="w-full mt-2 h-12"
+                                 >
++                                  <Trash2 className="w-4 h-4 mr-2" />
+                                   Remove
+                                 </Button>
+-                              </TableCell>
+-                            </TableRow>
++                              </div>
++                            </div>
+                           );
+                         })}
+-                      </TableBody>
+-                    </Table>
+-                  </div>
+-                </div>
+-              </CardContent>
+-            </Card>
+-          </TabsContent>
+-        </Tabs>
+-      </div>
+-    </div>
+-    </PullToRefreshContainer>
+-
+-    {/* Bottom Nav outside container to ensure viewport-fixed positioning */}
+-    <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
++                      </div>
++
++                      {/* Desktop Table Layout */}
++                      <div className="hidden sm:block overflow-x-auto">
++                        <Table>
++                          <TableHeader>
++                            <TableRow>
++                              <TableHead>Teacher</TableHead>
++                              <TableHead>Student</TableHead>
++                              <TableHead>Subject</TableHead>
++                              <TableHead>Actions</TableHead>
++                            </TableRow>
++                          </TableHeader>
++                          <TableBody>
++                            {subjectAssignments.map(assignment => {
++                              const teacher = teachers.find(t => t.id === assignment.teacherId);
++                              const student = students.find(s => s.id === assignment.studentId);
++                              const subject = subjects.find(s => s.id === assignment.subjectId);
++                              return (
++                                <TableRow key={assignment.id}>
++                                  <TableCell className="max-w-xs truncate">{teacher?.email || 'Unknown'}</TableCell>
++                                  <TableCell>{student?.name || 'Unknown'}</TableCell>
++                                  <TableCell>{subject?.name || 'Unknown'}</TableCell>
++                                  <TableCell>
++                                    <Button
++                                      variant="destructive"
++                                      size="sm"
++                                      onClick={() => handleDeleteAssignment(assignment.id)}
++                                      className="h-10"
++                                    >
++                                      Remove
++                                    </Button>
++                                  </TableCell>
++                                </TableRow>
++                              );
++                            })}
++                          </TableBody>
++                        </Table>
++                      </div>
++                    </div>
++                  </CardContent>
++                </Card>
++              </TabsContent>
++
++              {/* Consolidated Invoices Tab */}
++              <TabsContent value="invoices">
++                <Card>
++                  <CardHeader>
++                    <CardTitle className="text-lg sm:text-xl">Consolidated Invoices</CardTitle>
++                  </CardHeader>
++                  <CardContent>
++                    <div className="space-y-6">
++                      {/* Search and Selection */}
++                      <div className="space-y-4">
++                        <Label>Search Student Name</Label>
++                        <Input
++                          placeholder="Type name to search..."
++                          value={invoiceSearchQuery}
++                          onChange={(e) => setInvoiceSearchQuery(e.target.value)}
++                          className="h-12"
++                        />
++
++                        {invoiceSearchQuery && (
++                          <div className="border rounded-md p-4 max-h-[300px] overflow-y-auto space-y-2">
++                            <Label className="text-sm font-semibold mb-2 block">Select Student Records to Merge:</Label>
++                            {students
++                              .filter(s => s.name.toLowerCase().includes(invoiceSearchQuery.toLowerCase()))
++                              .map(student => {
++                                const teacher = teachers.find(t => t.id === student.teacherId);
++                                return (
++                                  <label key={student.id} className="flex items-center space-x-3 p-3 hover:bg-gray-50 rounded cursor-pointer border">
++                                    <input
++                                      type="checkbox"
++                                      checked={selectedStudentsForInvoice.includes(student.id)}
++                                      onChange={(e) => {
++                                        if (e.target.checked) {
++                                          setSelectedStudentsForInvoice([...selectedStudentsForInvoice, student.id]);
++                                        } else {
++                                          setSelectedStudentsForInvoice(selectedStudentsForInvoice.filter(id => id !== student.id));
++                                        }
++                                      }}
++                                      className="w-5 h-5"
++                                    />
++                                    <div className="flex-1">
++                                      <div className="font-medium">{student.name}</div>
++                                      <div className="text-xs text-gray-500">
++                                        Teacher: {teacher?.email || 'Unknown'} | Rate: RM{student.hourlyRate || 35}/hr
++                                      </div>
++                                    </div>
++                                  </label>
++                                );
++                              })}
++                            {students.filter(s => s.name.toLowerCase().includes(invoiceSearchQuery.toLowerCase())).length === 0 && (
++                              <p className="text-gray-500 text-center py-4">No matching students found.</p>
++                            )}
++                          </div>
++                        )}
++
++                        {selectedStudentsForInvoice.length > 0 && (
++                          <div className="bg-blue-50 p-3 rounded text-blue-700 text-sm">
++                            {selectedStudentsForInvoice.length} records selected for consolidation.
++                          </div>
++                        )}
++                      </div>
++
++                      {/* Generation Controls */}
++                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4">
++                        <div>
++                          <Label>Month</Label>
++                          <select
++                            value={invoiceMonth}
++                            onChange={(e) => setInvoiceMonth(parseInt(e.target.value))}
++                            className="w-full border rounded px-3 py-3 mt-1.5"
++                          >
++                            {[...Array(12)].map((_, i) => (
++                              <option key={i + 1} value={i + 1}>
++                                {new Date(0, i).toLocaleString('default', { month: 'long' })}
++                              </option>
++                            ))}
++                          </select>
++                        </div>
++                        <div>
++                          <Label>Year</Label>
++                          <Input
++                            type="number"
++                            value={invoiceYear}
++                            onChange={(e) => setInvoiceYear(parseInt(e.target.value))}
++                            className="h-12 mt-1.5"
++                          />
++                        </div>
++                      </div>
++
++                      <Button onClick={handleGenerateConsolidatedInvoice} className="w-full h-12 text-lg">
++                        Generate Consolidated Invoice PDF
++                      </Button>
++                    </div>
++                  </CardContent>
++                </Card>
++              </TabsContent>
++            </Tabs>
++          </div>
++        </div>
++      </PullToRefreshContainer>
++
++      {/* Bottom Nav outside container to ensure viewport-fixed positioning */}
++      <BottomNav userRole={userRole} activeTab={activeTab} onTabChange={setActiveTab} />
+     </>
+   );
+ }
