@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { signInWithGoogle } from '../../lib/firebaseAuth';
 import { useRouter } from 'next/navigation';
 import { Button } from '../../components/ui/button';
@@ -31,7 +32,7 @@ export default function LoginPage() {
         {/* Logo and Brand */}
         <div className="text-center mb-6 sm:mb-8">
           <div className="inline-flex items-center justify-center mb-4">
-            <img src="/logo.jpeg" alt="CLC Logo" className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl" />
+            <Image src="/logo.jpeg" alt="CLC Logo" width={96} height={96} className="rounded-2xl" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
             CLC, Chegu Learning Centre

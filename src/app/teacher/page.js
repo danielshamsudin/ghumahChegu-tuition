@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc as getSingleDoc, deleteField } from 'firebase/firestore';
@@ -36,7 +37,7 @@ export default function TeacherPage() {
     }
   }, [loading, currentUser, userRole, router]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     if (currentUser && (userRole === 'teacher' || userRole === 'superadmin')) {
       const studentsCollectionRef = collection(db, 'students');
       try {
@@ -53,9 +54,9 @@ export default function TeacherPage() {
         setMessage("Error fetching students. Please try refreshing.");
       }
     }
-  };
+  }, [currentUser, userRole]);
 
-  const fetchAttendance = async () => {
+  const fetchAttendance = useCallback(async () => {
     if (currentUser && (userRole === 'teacher' || userRole === 'superadmin') && attendanceDate) {
       const attendanceCollectionRef = collection(db, 'attendance');
       let q;
@@ -71,15 +72,15 @@ export default function TeacherPage() {
       });
       setAttendanceRecords(records);
     }
-  };
+  }, [currentUser, userRole, attendanceDate]);
 
   useEffect(() => {
     fetchStudents();
-  }, [currentUser, userRole]);
+  }, [fetchStudents]);
 
   useEffect(() => {
     fetchAttendance();
-  }, [currentUser, userRole, attendanceDate]);
+  }, [fetchAttendance]);
 
   const handleAddStudent = async () => {
     if (!newStudentName) {
@@ -329,7 +330,7 @@ export default function TeacherPage() {
     }
   };
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     if (currentUser && (userRole === 'teacher' || userRole === 'superadmin')) {
       const invoicesCollectionRef = collection(db, 'invoices');
       let q;
@@ -342,11 +343,11 @@ export default function TeacherPage() {
       const invoicesList = invoicesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setInvoices(invoicesList);
     }
-  };
+  }, [currentUser, userRole]);
 
   useEffect(() => {
     fetchInvoices();
-  }, [currentUser, userRole]);
+  }, [fetchInvoices]);
 
   if (loading || !currentUser || (userRole !== 'teacher' && userRole !== 'superadmin')) {
     return <div className="min-h-screen flex items-center justify-center">Loading or unauthorized...</div>;
@@ -355,7 +356,7 @@ export default function TeacherPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="flex flex-col items-center gap-3 mb-6">
-        <img src="/logo.jpeg" alt="CLC Logo" className="w-16 h-16 rounded-lg" />
+        <Image src="/logo.jpeg" alt="CLC Logo" width={64} height={64} className="rounded-lg" />
         <h1 className="text-3xl font-bold text-center">CLC, Chegu Learning Centre</h1>
       </div>
       {message && <p className="text-center text-green-600 mb-4">{message}</p>}

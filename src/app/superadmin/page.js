@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { collection, getDocs, doc, updateDoc, addDoc, query, where, deleteDoc, deleteField } from 'firebase/firestore';
@@ -568,7 +569,7 @@ export default function SuperadminPage() {
           <div className="max-w-7xl mx-auto">
             <div className="mb-4 sm:mb-6">
               <div className="flex items-center gap-3 mb-2">
-                <img src="/logo.jpeg" alt="CLC Logo" className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg" />
+                <Image src="/logo.jpeg" alt="CLC Logo" width={64} height={64} className="rounded-lg" />
                 <h1 className="text-2xl sm:text-3xl font-bold">CLC, Chegu Learning Centre</h1>
               </div>
               <p className="text-sm sm:text-base text-gray-600">Superadmin Dashboard - Manage users, classes, students, and assignments</p>
@@ -682,7 +683,7 @@ export default function SuperadminPage() {
                     <CardTitle>Data Migration</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="mb-4">One-click migration to update student records from "Single Teacher" to "Multiple Teachers" data model.</p>
+                    <p className="mb-4">One-click migration to update student records from &quot;Single Teacher&quot; to &quot;Multiple Teachers&quot; data model.</p>
                     <Button onClick={handleMigrateStudents}>Migrate Students</Button>
                   </CardContent>
                 </Card>

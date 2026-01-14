@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Image from 'next/image';
 import { useAuth } from '../../context/AuthContext';
 import { logOut } from '../../lib/firebaseAuth';
 import { useRouter } from 'next/navigation';
@@ -58,7 +59,7 @@ export default function DashboardPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex justify-between items-center">
               <h1 className="text-base sm:text-xl font-semibold truncate flex items-center gap-2">
-                <img src="/logo.jpeg" alt="CLC Logo" className="w-8 h-8 rounded" />
+                <Image src="/logo.jpeg" alt="CLC Logo" width={32} height={32} className="rounded" />
                 <span className="hidden sm:inline">CLC, Chegu Learning Centre</span>
                 <span className="sm:hidden">CLC</span>
               </h1>
